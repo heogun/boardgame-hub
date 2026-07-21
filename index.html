@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Boardgame Hub</title>
+    <!-- Tailwind CSS -->
+    <script nonce="rAndOmNoNcE123" src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS for WebRTC P2P Communication -->
+    <script nonce="rAndOmNoNcE123" src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
+    <script nonce="rAndOmNoNcE123" src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style nonce="rAndOmNoNcE123">
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+            color: #f8fafc; /* slate-50 */
+            overflow: hidden; /* App-like feel */
+        }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7); /* slate-800 with opacity */
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Custom Scrollbar for logs */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* Transitions */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .hidden-screen { display: none !important; }
+    </style>
+</head>
+<body class="h-screen w-screen flex items-center justify-center p-4 md:p-8">
+
+    <!-- SCREEN 1: LOBBY -->
+    <div id="screen-lobby" class="glass-panel w-full max-w-md rounded-2xl shadow-2xl p-8 fade-in flex flex-col gap-6 relative">
+        <div class="text-center space-y-2">
+            <div class="inline-flex items-center justify-center p-3 bg-indigo-500/20 rounded-xl mb-2 text-indigo-400">
+                <i class="ph ph-planet text-4xl"></i>
+            </div>
+            <h1 class="text-3xl font-bold tracking-tight">Boardgame Hub</h1>
+            <p class="text-sm text-slate-400">서버 없는 P2P 분산 런처</p>
+        </div>
+
+        <div id="lobby-error" class="hidden bg-red-500/20 border border-red-500/50 text-red-200 text-sm p-3 rounded-lg text-center"></div>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-1">닉네임</label>
+                <input type="text" id="input-nickname" placeholder="플레이어 이름 입력" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors" autocomplete="off">
+            </div>
+
+            <div class="pt-4 border-t border-slate-700/50">
+                <button id="btn-create-room" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2">
+                    <i class="ph ph-plus-circle text-xl"></i> 새로운 방 만들기 (Host)
+                </button>
+            </div>
+
+            <div class="relative flex items-center py-2">
+                <div class="flex-grow border-t border-slate-700/50"></div>
+                <span class="flex-shrink-0 mx-4 text-slate-500 text-sm">OR</span>
+                <div class="flex-grow border-t border-slate-700/50"></div>
+            </div>
+
+            <div class="flex gap-2">
+                <input type="text" id="input-room-id" placeholder="접속할 방 ID 입력" class="flex-grow bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors uppercase font-mono text-sm" autocomplete="off">
+                <button id="btn-join-room" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl transition-colors whitespace-nowrap flex items-center gap-2">
+                    <i class="ph ph-sign-in text-xl"></i> 참가
+                </button>
+            </div>
+        </div>
+        
+        <!-- Loading Overlay for Lobby -->
+        <div id="lobby-loading" class="hidden absolute inset-0 bg-slate-900/80 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center z-10">
+            <i class="ph ph-spinner-gap animate-spin text-4xl text-indigo-400 mb-4"></i>
+            <span id="lobby-loading-text" class="text-slate-300 font-medium">P2P 네트워크 연결 중...</span>
+        </div>
+    </div>
+
+    <!-- SCREEN 2: ROOM -->
+    <div id="screen-room" class="hidden-screen glass-panel w-full max-w-5xl h-full max-h-[800px] rounded-2xl shadow-2xl flex flex-col fade-in overflow-hidden">
+        <!-- Room Header -->
+        <header class="bg-slate-800/50 border-b border-slate-700 p-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div id="role-badge" class="px-3 py-1 bg-indigo-500/20 text-indigo-300 text-xs font-bold uppercase rounded-lg border border-indigo-500/30">
+                    Host
+                </div>
+                <div>
+                    <h2 class="font-bold text-lg leading-tight">대기실</h2>
+                    <div class="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white transition-colors group" id="btn-copy-room">
+                        <span>방 ID: <span id="display-room-id" class="font-mono text-indigo-300 group-hover:text-indigo-200">...</span></span>
+                        <i class="ph ph-copy"></i>
+                    </div>
+                </div>
+            </div>
+            <button id="btn-leave-room" class="px-4 py-2 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 text-slate-300 rounded-lg transition-colors text-sm font-medium flex items-center gap-2 border border-transparent hover:border-red-500/30">
+                <i class="ph ph-sign-out"></i> 나가기
+            </button>
+        </header>
+
+        <!-- Room Body (Split Layout) -->
+        <div class="flex-grow flex flex-col md:flex-row overflow-hidden">
+            
+            <!-- Left: Players List -->
+            <div class="w-full md:w-64 border-r border-slate-700 bg-slate-900/30 flex flex-col">
+                <div class="p-4 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/30">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">접속된 플레이어 (<span id="player-count">1</span>)</h3>
+                </div>
+                <div id="player-list" class="p-2 space-y-1 overflow-y-auto flex-grow">
+                    <!-- Player items will be injected here -->
+                </div>
+            </div>
+
+            <!-- Right: Game Setup & Logs -->
+            <div class="flex-grow flex flex-col bg-slate-900/10">
+                <!-- Module Selection (Host Only UI) -->
+                <div class="p-6 border-b border-slate-700 flex flex-col gap-4">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold">게임 모듈 선택</h3>
+                        <span id="module-warning" class="text-xs text-amber-400 hidden"><i class="ph ph-warning"></i> 인원수가 맞지 않아 선택할 수 없습니다 (레벨 10: 2~4인 전용)</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <!-- TicTacToe Module (1-4 players) -->
+                        <div class="game-module-card border border-indigo-500 bg-indigo-500/10 p-4 rounded-xl cursor-pointer hover:bg-indigo-500/20 transition-colors" data-game="tictactoe" data-min="1" data-max="4">
+                            <i class="ph ph-hash text-2xl text-indigo-400 mb-2"></i>
+                            <h4 class="font-bold">틱택토</h4>
+                            <p class="text-xs text-slate-400 mt-1">1~4인용 (룰 테스트용)</p>
+                        </div>
+                        <!-- Level 10 Module (2-4 players) -->
+                        <div id="card-module-level10" class="game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl transition-all" data-game="level10" data-min="2" data-max="4">
+                            <i class="ph ph-cards text-2xl text-slate-400 mb-2" id="icon-level10"></i>
+                            <h4 class="font-bold" id="title-level10">레벨 10 (The Mind)</h4>
+                            <p class="text-xs text-slate-400 mt-1" id="desc-level10">협동 카드 게임 (2~4인 전용)</p>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end">
+                        <button id="btn-start-game" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg transition-colors flex items-center gap-2 opacity-50 cursor-not-allowed" disabled>
+                            <i class="ph ph-play"></i> 게임 시작 (개발 중)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System Logs (Proof of P2P Concept) -->
+                <div class="flex-grow flex flex-col p-4 overflow-hidden">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">네트워크 & 액션 로그</h3>
+                    <div id="system-logs" class="flex-grow bg-slate-950 rounded-xl border border-slate-800 p-4 overflow-y-auto font-mono text-xs space-y-2">
+                        <!-- Logs injected here -->
+                    </div>
+                    <!-- Chat/Command Input -->
+                    <div class="mt-4 flex gap-2">
+                        <input type="text" id="input-chat" placeholder="메시지 전송 (P2P 통신 테스트용)" class="flex-grow bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 transition-colors text-sm" autocomplete="off">
+                        <button id="btn-send-chat" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors">
+                            <i class="ph ph-paper-plane-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Toast Alert Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 flex flex-col gap-2 z-50"></div>
+
+    <script nonce="rAndOmNoNcE123">
+        /* =========================================================================
+           1. APPLICATION STATE & GLOBALS
+           ========================================================================= */
+        const AppState = {
+            peer: null,             // PeerJS Instance
+            myId: null,             // My Network ID
+            myName: '',             // My Nickname
+            isHost: false,          // Am I the Host?
+            roomId: null,           // Current Room ID
+            
+            // For HOST
+            connections: {},        // Map of peerId -> connection object
+            
+            // For CLIENT
+            hostConnection: null,   // Connection object to host
+            
+            // GAME STATE (Shared across all peers via STATE_SYNC)
+            gameState: {
+                status: 'LOBBY',    // LOBBY, PLAYING
+                selectedGame: 'tictactoe',
+                players: []         // Array of { id, name, isHost }
+            }
+        };
+
+        // DOM Elements
+        const elScreenLobby = document.getElementById('screen-lobby');
+        const elScreenRoom = document.getElementById('screen-room');
+        const elLobbyLoading = document.getElementById('lobby-loading');
+        const elLobbyLoadingText = document.getElementById('lobby-loading-text');
+        const elLobbyError = document.getElementById('lobby-error');
+        
+        const elInputNickname = document.getElementById('input-nickname');
+        const elInputRoomId = document.getElementById('input-room-id');
+        const elDisplayRoomId = document.getElementById('display-room-id');
+        const elPlayerList = document.getElementById('player-list');
+        const elPlayerCount = document.getElementById('player-count');
+        const elSystemLogs = document.getElementById('system-logs');
+        const elInputChat = document.getElementById('input-chat');
+
+        /* =========================================================================
+           2. UTILITY FUNCTIONS
+           ========================================================================= */
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            const colorClass = type === 'error' ? 'bg-red-500/90' : type === 'success' ? 'bg-emerald-500/90' : 'bg-slate-800/90';
+            toast.className = `${colorClass} text-white px-4 py-3 rounded-lg shadow-lg text-sm backdrop-blur-sm border border-white/10 flex items-center gap-2 transform transition-all duration-300 translate-y-10 opacity-0`;
+            
+            const icon = type === 'error' ? 'ph-warning-circle' : type === 'success' ? 'ph-check-circle' : 'ph-info';
+            toast.innerHTML = `<i class="ph ${icon} text-lg"></i><span>${message}</span>`;
+            
+            document.getElementById('toast-container').appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function logSystem(message, isSystem = true, senderName = 'System') {
+            const logEntry = document.createElement('div');
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric" });
+            
+            if (isSystem) {
+                logEntry.className = "text-slate-500";
+                logEntry.innerHTML = `[${time}] ${message}`;
+            } else {
+                const color = senderName === AppState.myName ? 'text-indigo-300' : 'text-emerald-300';
+                logEntry.innerHTML = `<span class="text-slate-500">[${time}]</span> <span class="${color} font-bold">${senderName}:</span> <span class="text-slate-300">${message}</span>`;
+            }
+            
+            elSystemLogs.appendChild(logEntry);
+            elSystemLogs.scrollTop = elSystemLogs.scrollHeight;
+        }
+
+        function updateGameModuleAvailability() {
+            const playerCount = AppState.gameState.players.length;
+            const moduleCards = document.querySelectorAll('.game-module-card');
+            const warningEl = document.getElementById('module-warning');
+            
+            let hasSelectable = false;
+
+            moduleCards.forEach(card => {
+                const min = parseInt(card.getAttribute('data-min') || '1');
+                const max = parseInt(card.getAttribute('data-max') || '10');
+                const gameName = card.getAttribute('data-game');
+
+                if (playerCount >= min && playerCount <= max) {
+                    // Eligible
+                    card.classList.remove('opacity-40', 'cursor-not-allowed', 'border-slate-700');
+                    card.classList.add('cursor-pointer');
+                    if (gameName === AppState.gameState.selectedGame) {
+                        card.className = "game-module-card border border-indigo-500 bg-indigo-500/10 p-4 rounded-xl cursor-pointer transition-all";
+                    } else {
+                        card.className = "game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl cursor-pointer hover:bg-slate-700 transition-all";
+                    }
+                } else {
+                    // Ineligible (Grayed out)
+                    card.classList.add('opacity-40', 'cursor-not-allowed', 'border-slate-700');
+                    card.classList.remove('cursor-pointer', 'border-indigo-500', 'bg-indigo-500/10', 'hover:bg-slate-700');
+                    
+                    // If currently selected game became invalid, fallback to tictactoe
+                    if (AppState.gameState.selectedGame === gameName && AppState.isHost) {
+                        AppState.gameState.selectedGame = 'tictactoe';
+                        syncStateToAll();
+                    }
+                }
+            });
+
+            // Show/Hide warning if Level 10 is unavailable due to player count
+            const level10Card = document.getElementById('card-module-level10');
+            if (level10Card.classList.contains('opacity-40')) {
+                warningEl.classList.remove('hidden');
+            } else {
+                warningEl.classList.add('hidden');
+            }
+        }
+
+        function renderPlayerList() {
+            elPlayerList.innerHTML = '';
+            elPlayerCount.textContent = AppState.gameState.players.length;
+            
+            AppState.gameState.players.forEach(p => {
+                const isMe = p.id === AppState.myId;
+                const roleBadge = p.isHost 
+                    ? `<span class="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-[10px] font-bold">HOST</span>` 
+                    : ``;
+                const meBadge = isMe 
+                    ? `<span class="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-[10px] font-bold">ME</span>` 
+                    : ``;
+
+                elPlayerList.innerHTML += `
+                    <div class="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-700/50">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold text-slate-300">
+                                ${p.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span class="text-sm font-medium ${isMe ? 'text-white' : 'text-slate-300'}">${p.name}</span>
+                        </div>
+                        <div class="flex gap-1">
+                            ${roleBadge}
+                            ${meBadge}
+                        </div>
+                    </div>
+                `;
+            });
+
+            updateGameModuleAvailability();
+        }
+
+        function updateScreen(screen) {
+            elScreenLobby.classList.add('hidden-screen');
+            elScreenRoom.classList.add('hidden-screen');
+            document.getElementById(`screen-${screen}`).classList.remove('hidden-screen');
+        }
+
+        function setLoading(isLoading, text = "처리 중...") {
+            if (isLoading) {
+                elLobbyLoadingText.textContent = text;
+                elLobbyLoading.classList.remove('hidden');
+            } else {
+                elLobbyLoading.classList.add('hidden');
+            }
+        }
+
+        /* =========================================================================
+           3. CORE NETWORKING LOGIC (PEERJS)
+           ========================================================================= */
+
+        function initPeer(onSuccess) {
+            setLoading(true, "PeerJS 시그널링 서버 연결 중...");
+            
+            const peerOptions = {
+                debug: 2,
+                config: {
+                    'iceServers': [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
+            };
+
+            let isOpened = false;
+            const connectionTimeout = setTimeout(() => {
+                if (!isOpened) {
+                    setLoading(false);
+                    showToast("공용 서버 응답이 지연되고 있습니다. 다시 시도해주세요.", "error");
+                    if (AppState.peer) {
+                        AppState.peer.destroy();
+                        AppState.peer = null;
+                    }
+                }
+            }, 10000);
+
+            try {
+                if (AppState.isHost) {
+                    const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+                    AppState.peer = new Peer(`ROOM-${randomId}`, peerOptions);
+                } else {
+                    AppState.peer = new Peer(peerOptions);
+                }
+
+                AppState.peer.on('open', id => {
+                    isOpened = true;
+                    clearTimeout(connectionTimeout);
+                    AppState.myId = id;
+                    if (onSuccess) onSuccess();
+                });
+
+                AppState.peer.on('error', err => {
+                    console.error(err);
+                    isOpened = true;
+                    clearTimeout(connectionTimeout);
+                    setLoading(false);
+                    
+                    if (err.type === 'unavailable-id') {
+                        showToast("방 ID 생성 실패. 다시 시도해주세요.", "error");
+                    } else if (err.type === 'peer-unavailable') {
+                        showToast("입력한 방 ID를 찾을 수 없습니다.", "error");
+                        elLobbyError.textContent = "방을 찾을 수 없습니다. ID를 확인해주세요.";
+                        elLobbyError.classList.remove('hidden');
+                    } else if (err.type === 'network' || err.type === 'server-error') {
+                        showToast("공용 서버가 불안정합니다. 잠시 후 시도해주세요.", "error");
+                    } else {
+                        showToast("네트워크 에러: " + err.message, "error");
+                    }
+                });
+            } catch (e) {
+                clearTimeout(connectionTimeout);
+                setLoading(false);
+                showToast("PeerJS 초기화 중 오류가 발생했습니다.", "error");
+                console.error(e);
+            }
+        }
+
+        function startHost() {
+            AppState.isHost = true;
+            AppState.gameState.players = [];
+
+            initPeer(() => {
+                setLoading(false);
+                AppState.roomId = AppState.myId;
+                
+                addPlayer(AppState.myId, AppState.myName, true);
+
+                document.getElementById('role-badge').textContent = 'HOST';
+                document.getElementById('role-badge').className = 'px-3 py-1 bg-indigo-500/20 text-indigo-300 text-xs font-bold uppercase rounded-lg border border-indigo-500/30';
+                elDisplayRoomId.textContent = AppState.roomId;
+                
+                AppState.peer.on('connection', conn => {
+                    setupHostConnection(conn);
+                });
+
+                updateScreen('room');
+                logSystem('방이 생성되었습니다. 다른 플레이어가 접속하기를 기다립니다.');
+            });
+        }
+
+        function setupHostConnection(conn) {
+            conn.on('open', () => {
+                AppState.connections[conn.peer] = conn;
+                conn.on('data', data => handleIncomingDataAsHost(conn.peer, data));
+            });
+
+            conn.on('close', () => {
+                logSystem(`클라이언트 통신 끊김: ${conn.peer}`);
+                removePlayer(conn.peer);
+                delete AppState.connections[conn.peer];
+            });
+        }
+
+        function handleIncomingDataAsHost(peerId, payload) {
+            if (!payload || !payload.type) return;
+
+            switch(payload.type) {
+                case 'ACTION_JOIN':
+                    addPlayer(peerId, payload.name, false);
+                    logSystem(`${payload.name} 님이 방에 참가했습니다.`);
+                    break;
+                
+                case 'ACTION_CHAT':
+                    const p = AppState.gameState.players.find(p => p.id === peerId);
+                    const pName = p ? p.name : 'Unknown';
+                    logSystem(payload.message, false, pName);
+                    broadcastToClients({ type: 'EVENT_CHAT', senderName: pName, message: payload.message });
+                    break;
+
+                case 'ACTION_SELECT_GAME':
+                    if (AppState.isHost) {
+                        AppState.gameState.selectedGame = payload.game;
+                        syncStateToAll();
+                        logSystem(`게임 모듈이 [${payload.game}] (으)로 변경되었습니다.`);
+                    }
+                    break;
+            }
+        }
+
+        function addPlayer(id, name, isHost) {
+            AppState.gameState.players.push({ id, name, isHost });
+            syncStateToAll();
+        }
+
+        function removePlayer(id) {
+            const idx = AppState.gameState.players.findIndex(p => p.id === id);
+            if (idx > -1) {
+                const name = AppState.gameState.players[idx].name;
+                AppState.gameState.players.splice(idx, 1);
+                logSystem(`${name} 님이 방을 나갔습니다.`);
+                syncStateToAll();
+            }
+        }
+
+        function syncStateToAll() {
+            renderPlayerList();
+            broadcastToClients({
+                type: 'STATE_SYNC',
+                state: AppState.gameState
+            });
+        }
+
+        function broadcastToClients(dataObj) {
+            Object.values(AppState.connections).forEach(conn => {
+                if (conn.open) {
+                    conn.send(dataObj);
+                }
+            });
+        }
+
+        function joinRoom(hostId) {
+            AppState.isHost = false;
+            
+            initPeer(() => {
+                setLoading(true, "방장에 연결 중...");
+                
+                const conn = AppState.peer.connect(hostId, { reliable: true });
+                AppState.hostConnection = conn;
+
+                conn.on('open', () => {
+                    setLoading(false);
+                    AppState.roomId = hostId;
+                    
+                    document.getElementById('role-badge').textContent = 'CLIENT';
+                    document.getElementById('role-badge').className = 'px-3 py-1 bg-emerald-500/20 text-emerald-300 text-xs font-bold uppercase rounded-lg border border-emerald-500/30';
+                    elDisplayRoomId.textContent = AppState.roomId;
+                    
+                    updateScreen('room');
+                    logSystem('방장과 연결되었습니다.');
+
+                    conn.send({ type: 'ACTION_JOIN', name: AppState.myName });
+                });
+
+                conn.on('data', data => handleIncomingDataAsClient(data));
+
+                conn.on('close', () => {
+                    logSystem('방장과의 연결이 끊어졌습니다.', true);
+                    showToast("방장과의 연결이 끊어졌습니다.", "error");
+                    setTimeout(() => {
+                        leaveRoom();
+                    }, 3000);
+                });
+            });
+        }
+
+        function handleIncomingDataAsClient(payload) {
+            if (!payload || !payload.type) return;
+
+            switch(payload.type) {
+                case 'STATE_SYNC':
+                    AppState.gameState = payload.state;
+                    renderPlayerList();
+                    // Update client UI selection style
+                    document.querySelectorAll('.game-module-card').forEach(card => {
+                        const g = card.getAttribute('data-game');
+                        if (g === AppState.gameState.selectedGame) {
+                            card.className = "game-module-card border border-indigo-500 bg-indigo-500/10 p-4 rounded-xl transition-all";
+                        } else {
+                            if (!card.classList.contains('opacity-40')) {
+                                card.className = "game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl transition-all";
+                            }
+                        }
+                    });
+                    break;
+                
+                case 'EVENT_CHAT':
+                    logSystem(payload.message, false, payload.senderName);
+                    break;
+            }
+        }
+
+        function sendActionToHost(actionObj) {
+            if (AppState.hostConnection && AppState.hostConnection.open) {
+                AppState.hostConnection.send(actionObj);
+            } else if (AppState.isHost) {
+                handleIncomingDataAsHost(AppState.myId, actionObj);
+            }
+        }
+
+        /* =========================================================================
+           4. UI EVENT LISTENERS
+           ========================================================================= */
+
+        document.getElementById('btn-create-room').addEventListener('click', () => {
+            const name = elInputNickname.value.trim();
+            if (!name) {
+                showToast("닉네임을 입력해주세요.", "error");
+                return;
+            }
+            AppState.myName = name;
+            elLobbyError.classList.add('hidden');
+            startHost();
+        });
+
+        document.getElementById('btn-join-room').addEventListener('click', () => {
+            const name = elInputNickname.value.trim();
+            let roomInput = elInputRoomId.value.trim().toUpperCase();
+            
+            if (!name) {
+                showToast("닉네임을 입력해주세요.", "error");
+                return;
+            }
+            if (!roomInput) {
+                showToast("접속할 방 ID를 입력해주세요.", "error");
+                return;
+            }
+
+            if (!roomInput.startsWith('ROOM-')) {
+                roomInput = 'ROOM-' + roomInput;
+            }
+
+            AppState.myName = name;
+            elLobbyError.classList.add('hidden');
+            joinRoom(roomInput);
+        });
+
+        document.getElementById('btn-copy-room').addEventListener('click', () => {
+            const code = AppState.roomId;
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = code;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showToast(`방 ID [${code}] 복사 완료!`, "success");
+            } catch (err) {
+                showToast("클립보드 복사에 실패했습니다.", "error");
+            }
+        });
+
+        // Game Module Click Selection (Host only logic)
+        document.querySelectorAll('.game-module-card').forEach(card => {
+            card.addEventListener('click', () => {
+                if (!AppState.isHost) {
+                    showToast("게임 모듈 선택은 방장만 가능합니다.", "info");
+                    return;
+                }
+                if (card.classList.contains('opacity-40')) {
+                    showToast("현재 인원수가 조건에 맞지 않아 선택할 수 없습니다.", "error");
+                    return;
+                }
+
+                const selectedGame = card.getAttribute('data-game');
+                AppState.gameState.selectedGame = selectedGame;
+                syncStateToAll();
+                
+                // Highlight UI locally
+                document.querySelectorAll('.game-module-card').forEach(c => {
+                    if (!c.classList.contains('opacity-40')) {
+                        c.className = "game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl cursor-pointer hover:bg-slate-700 transition-all";
+                    }
+                });
+                card.className = "game-module-card border border-indigo-500 bg-indigo-500/10 p-4 rounded-xl cursor-pointer transition-all";
+            });
+        });
+
+        function handleSendChat() {
+            const msg = elInputChat.value.trim();
+            if (!msg) return;
+            
+            if (AppState.isHost) {
+                logSystem(msg, false, AppState.myName);
+                broadcastToClients({ type: 'EVENT_CHAT', senderName: AppState.myName, message: msg });
+            } else {
+                sendActionToHost({ type: 'ACTION_CHAT', message: msg });
+            }
+
+            elInputChat.value = '';
+        }
+
+        document.getElementById('btn-send-chat').addEventListener('click', handleSendChat);
+        elInputChat.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleSendChat();
+        });
+
+        function leaveRoom() {
+            if (AppState.peer) {
+                AppState.peer.destroy();
+            }
+            AppState.peer = null;
+            AppState.isHost = false;
+            AppState.connections = {};
+            AppState.hostConnection = null;
+            AppState.roomId = null;
+            elSystemLogs.innerHTML = '';
+            updateScreen('lobby');
+        }
+
+        document.getElementById('btn-leave-room').addEventListener('click', () => {
+            leaveRoom();
+        });
+    </script>
+</body>
+</html>
