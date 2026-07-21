@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebRTC Boardgame Hub</title>
+  <link rel="icon" type="image/svg+xml" href="/boardgame-hub/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script type="module" src="/src/main.ts"></script>
+</head>
+<body class="h-screen w-screen flex items-center justify-center p-4 md:p-8 bg-slate-900 text-slate-50 overflow-hidden font-sans">
+  <!-- SCREEN 1: LOBBY -->
+  <div id="screen-lobby" class="glass-panel w-full max-w-md rounded-2xl shadow-2xl p-8 fade-in flex flex-col gap-6 relative">
+    <div class="text-center space-y-2">
+      <div class="inline-flex items-center justify-center p-3 bg-indigo-500/20 rounded-xl mb-2 text-indigo-400">
+        <i class="ph ph-planet text-4xl"></i>
+      </div>
+      <h1 class="text-3xl font-bold tracking-tight">Boardgame Hub</h1>
+      <p class="text-sm text-slate-400">서버 없는 P2P 분산 런처</p>
+    </div>
+
+    <div id="lobby-error" class="hidden bg-red-500/20 border border-red-500/50 text-red-200 text-sm p-3 rounded-lg text-center"></div>
+
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-300 mb-1">닉네임</label>
+        <input type="text" id="input-nickname" placeholder="플레이어 이름 입력" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors" autocomplete="off" />
+      </div>
+
+      <div class="pt-4 border-t border-slate-700/50">
+        <button id="btn-create-room" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2">
+          <i class="ph ph-plus-circle text-xl"></i> 새로운 방 만들기 (Host)
+        </button>
+      </div>
+
+      <div class="relative flex items-center py-2">
+        <div class="flex-grow border-t border-slate-700/50"></div>
+        <span class="flex-shrink-0 mx-4 text-slate-500 text-sm">OR</span>
+        <div class="flex-grow border-t border-slate-700/50"></div>
+      </div>
+
+      <div class="flex gap-2">
+        <input type="text" id="input-room-id" placeholder="접속할 방 ID 입력" class="flex-grow bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors uppercase font-mono text-sm" autocomplete="off" />
+        <button id="btn-join-room" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl transition-colors whitespace-nowrap flex items-center gap-2">
+          <i class="ph ph-sign-in text-xl"></i> 참가
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading Overlay for Lobby -->
+    <div id="lobby-loading" class="hidden absolute inset-0 bg-slate-900/80 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center z-10">
+      <i class="ph ph-spinner-gap animate-spin text-4xl text-indigo-400 mb-4"></i>
+      <span id="lobby-loading-text" class="text-slate-300 font-medium">P2P 네트워크 연결 중...</span>
+    </div>
+  </div>
+
+  <!-- SCREEN 2: ROOM -->
+  <div id="screen-room" class="hidden-screen glass-panel w-full max-w-5xl h-full max-h-[800px] rounded-2xl shadow-2xl flex flex-col fade-in overflow-hidden">
+    <!-- Room Header -->
+    <header class="bg-slate-800/50 border-b border-slate-700 p-4 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <div id="role-badge" class="px-3 py-1 bg-indigo-500/20 text-indigo-300 text-xs font-bold uppercase rounded-lg border border-indigo-500/30">
+          Host
+        </div>
+        <div>
+          <h2 class="font-bold text-lg leading-tight">대기실</h2>
+          <div class="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white transition-colors group" id="btn-copy-room">
+            <span>방 ID: <span id="display-room-id" class="font-mono text-indigo-300 group-hover:text-indigo-200">...</span></span>
+            <i class="ph ph-copy"></i>
+          </div>
+        </div>
+      </div>
+      <button id="btn-leave-room" class="px-4 py-2 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 text-slate-300 rounded-lg transition-colors text-sm font-medium flex items-center gap-2 border border-transparent hover:border-red-500/30">
+        <i class="ph ph-sign-out"></i> 나가기
+      </button>
+    </header>
+
+    <!-- Room Body (Split Layout) -->
+    <div class="flex-grow flex flex-col md:flex-row overflow-hidden">
+      <!-- Left: Players List -->
+      <div class="w-full md:w-64 border-r border-slate-700 bg-slate-900/30 flex flex-col">
+        <div class="p-4 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/30">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">접속된 플레이어 (<span id="player-count">1</span>)</h3>
+        </div>
+        <div id="player-list" class="p-2 space-y-1 overflow-y-auto flex-grow"></div>
+      </div>
+
+      <!-- Right: Game Setup & Logs -->
+      <div class="flex-grow flex flex-col bg-slate-900/10">
+        <!-- Module Selection (Host Only UI) -->
+        <div class="p-6 border-b border-slate-700 flex flex-col gap-4">
+          <div class="flex justify-between items-center">
+            <h3 class="text-lg font-bold">게임 모듈 선택</h3>
+            <span id="module-warning" class="text-xs text-amber-400 hidden"><i class="ph ph-warning"></i> 인원수가 맞지 않아 선택할 수 없습니다 (레벨 10: 2~4인 전용)</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <!-- TicTacToe Module (1-4 players) -->
+            <div class="game-module-card border border-indigo-500 bg-indigo-500/10 p-4 rounded-xl cursor-pointer hover:bg-indigo-500/20 transition-colors" data-game="tictactoe" data-min="1" data-max="4">
+              <i class="ph ph-hash text-2xl text-indigo-400 mb-2"></i>
+              <h4 class="font-bold">틱택토</h4>
+              <p class="text-xs text-slate-400 mt-1">1~4인용 (룰 테스트용)</p>
+            </div>
+            <!-- Level 10 Module (2-4 players) -->
+            <div id="card-module-level10" class="game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl transition-all" data-game="level10" data-min="2" data-max="4">
+              <i class="ph ph-cards text-2xl text-slate-400 mb-2" id="icon-level10"></i>
+              <h4 class="font-bold" id="title-level10">레벨 10 (The Mind)</h4>
+              <p class="text-xs text-slate-400 mt-1" id="desc-level10">협동 카드 게임 (2~4인 전용)</p>
+            </div>
+          </div>
+          <div class="mt-4 flex justify-end">
+            <button id="btn-start-game" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg transition-colors flex items-center gap-2 opacity-50 cursor-not-allowed" disabled>
+              <i class="ph ph-play"></i> 게임 시작 (개발 중)
+            </button>
+          </div>
+        </div>
+
+        <!-- System Logs -->
+        <div class="flex-grow flex flex-col p-4 overflow-hidden">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">네트워크 & 액션 로그</h3>
+          <div id="system-logs" class="flex-grow bg-slate-950 rounded-xl border border-slate-800 p-4 overflow-y-auto font-mono text-xs space-y-2"></div>
+          <!-- Chat/Command Input -->
+          <div class="mt-4 flex gap-2">
+            <input type="text" id="input-chat" placeholder="메시지 전송 (P2P 통신 테스트용)" class="flex-grow bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 transition-colors text-sm" autocomplete="off" />
+            <button id="btn-send-chat" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors">
+              <i class="ph ph-paper-plane-right"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Toast Alert Container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 flex flex-col gap-2 z-50"></div>
+</body>
+</html>
