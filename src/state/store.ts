@@ -1,6 +1,8 @@
-import type { GameState, Player } from '../types';
+import type { GameState, Player, Level10GameState } from '../types';
 
 type Listener = () => void;
+
+export type AppScreen = 'lobby' | 'room' | 'game-level10';
 
 class Store {
   private _peer: import('peerjs').Peer | null = null;
@@ -15,6 +17,8 @@ class Store {
     selectedGame: 'tictactoe',
     players: [],
   };
+  private _currentScreen: AppScreen = 'lobby';
+  private _l10: Level10GameState | null = null;
 
   private listeners: Set<Listener> = new Set();
 
@@ -27,7 +31,6 @@ class Store {
     this.listeners.forEach((fn) => fn());
   }
 
-  // Getters
   get peer() {
     return this._peer;
   }
@@ -52,8 +55,13 @@ class Store {
   get gameState() {
     return this._gameState;
   }
+  get currentScreen() {
+    return this._currentScreen;
+  }
+  get l10() {
+    return this._l10;
+  }
 
-  // Setters
   set peer(p: import('peerjs').Peer | null) {
     this._peer = p;
     this.notify();
@@ -76,6 +84,14 @@ class Store {
   }
   set hostConnection(c: import('peerjs').DataConnection | null) {
     this._hostConnection = c;
+    this.notify();
+  }
+  set currentScreen(s: AppScreen) {
+    this._currentScreen = s;
+    this.notify();
+  }
+  set l10(v: Level10GameState | null) {
+    this._l10 = v;
     this.notify();
   }
 
@@ -121,6 +137,8 @@ class Store {
       selectedGame: 'tictactoe',
       players: [],
     };
+    this._currentScreen = 'lobby';
+    this._l10 = null;
     this.notify();
   }
 }

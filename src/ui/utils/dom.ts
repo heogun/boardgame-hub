@@ -1,9 +1,12 @@
+const SCREENS = ['lobby', 'room', 'game-level10'];
+
 export function updateScreen(screen: string) {
-  const lobby = document.getElementById('screen-lobby')!;
-  const room = document.getElementById('screen-room')!;
-  lobby.classList.add('hidden-screen');
-  room.classList.add('hidden-screen');
-  document.getElementById(`screen-${screen}`)!.classList.remove('hidden-screen');
+  SCREENS.forEach((s) => {
+    const el = document.getElementById(`screen-${s}`);
+    if (el) {
+      el.classList.toggle('hidden-screen', s !== screen);
+    }
+  });
 }
 
 export function setLoading(isLoading: boolean, text = '처리 중...') {

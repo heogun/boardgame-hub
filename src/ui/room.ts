@@ -5,6 +5,7 @@ import { leaveRoom } from '../networking/client';
 import { logSystem } from './utils/log';
 import { showToast } from './utils/toast';
 import { copyToClipboard } from './utils/clipboard';
+import { startLevel10Game } from '../games/level10/ui';
 
 export function initRoomEvents() {
   document.querySelectorAll('.game-module-card').forEach((card) => {
@@ -25,6 +26,8 @@ export function initRoomEvents() {
       copyToClipboard(store.roomId, '방 ID');
     }
   });
+
+  document.getElementById('btn-start-game')!.addEventListener('click', onStartGame);
 }
 
 function onGameModuleClick(card: HTMLDivElement) {
@@ -64,4 +67,37 @@ function handleSendChat() {
   }
 
   input.value = '';
+}
+
+function onStartGame() {
+  const selectedGame = store.gameState.selectedGame;
+
+  if (selectedGame === 'level10') {
+    if (store.isHost) {
+      startLevel10Game();
+    } else {
+      showToast('방장만 게임을 시작할 수 있습니다.', 'info');
+    }
+  } else {
+    showToast('이 게임 모듈은 아직 구현되지 않았습니다.', 'info');
+  }
+}
+
+export function updateStartButton() {
+  const btn = document.getElementById('btn-start-game') as HTMLButtonElement;
+  const selectedGame = store.gameState.selectedGame;
+
+  if (selectedGame === 'level10' && store.isHost) {
+    const playerCount = store.gameState.players.length;
+    if (playerCount >= 2 && playerCount <= 4) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  } else {
+    btn.disabled = true;
+    btn.classList.add('opacity-50', 'cursor-not-allowed');
+  }
 }

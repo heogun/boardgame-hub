@@ -1,5 +1,6 @@
 import { store } from '../../state/store';
 import { updateGameModuleAvailability } from './GameModuleCard';
+import { updateStartButton } from '../room';
 
 export function renderPlayerList() {
   const list = document.getElementById('player-list')!;
@@ -33,4 +34,5 @@ export function renderPlayerList() {
     .join('');
 
   updateGameModuleAvailability();
+  updateStartButton();
 }
