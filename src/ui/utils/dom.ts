@@ -1,4 +1,4 @@
-const SCREENS = ['lobby', 'room', 'game-level10'];
+const SCREENS = ['lobby', 'room', 'game-level10', 'game-buffalo', 'game-dracula', 'game-naishi', 'game-cadia'];
 
 export function updateScreen(screen: string) {
   SCREENS.forEach((s) => {

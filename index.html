@@ -108,6 +108,18 @@
               <h4 class="font-bold" id="title-level10">레벨 10 (The Mind)</h4>
               <p class="text-xs text-slate-400 mt-1" id="desc-level10">협동 카드 게임 (2~4인 전용)</p>
             </div>
+            <!-- Naishi Module (2 players) -->
+            <div class="game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl transition-all" data-game="naishi" data-min="2" data-max="2">
+              <i class="ph ph-swords text-2xl text-slate-400 mb-2"></i>
+              <h4 class="font-bold">나이시 (Naishi)</h4>
+              <p class="text-xs text-slate-400 mt-1">2인 전략 카드 게임</p>
+            </div>
+            <!-- Cadia Module (2 players) -->
+            <div class="game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl transition-all" data-game="cadia" data-min="2" data-max="2">
+              <i class="ph ph-crown text-2xl text-slate-400 mb-2"></i>
+              <h4 class="font-bold">카르디아 (Duel for Cardia)</h4>
+              <p class="text-xs text-slate-400 mt-1">2인 카드 듀얼 게임</p>
+            </div>
           </div>
           <div class="mt-4 flex justify-end">
             <button id="btn-start-game" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg transition-colors flex items-center gap-2 opacity-50 cursor-not-allowed" disabled>
@@ -135,6 +147,26 @@
   <!-- SCREEN 3: LEVEL 10 GAME -->
   <div id="screen-game-level10" class="hidden-screen glass-panel w-full max-w-5xl h-full max-h-[800px] rounded-2xl shadow-2xl flex flex-col fade-in overflow-hidden">
     <div id="game-level10-content" class="flex flex-col flex-grow overflow-hidden"></div>
+  </div>
+
+  <!-- SCREEN 4: BUFFALO CHESS GAME -->
+  <div id="screen-game-buffalo" class="hidden-screen glass-panel w-full max-w-5xl h-full max-h-[800px] rounded-2xl shadow-2xl flex flex-col fade-in overflow-hidden">
+    <div id="game-buffalo-content" class="flex flex-col flex-grow overflow-hidden"></div>
+  </div>
+
+  <!-- SCREEN 5: DRACULA VS VAN HELSING GAME -->
+  <div id="screen-game-dracula" class="hidden-screen glass-panel w-full max-w-5xl h-full max-h-[800px] rounded-2xl shadow-2xl flex flex-col fade-in overflow-hidden">
+    <div id="game-dracula-content" class="flex flex-col flex-grow overflow-hidden"></div>
+  </div>
+
+  <!-- SCREEN 6: NAISHI GAME -->
+  <div id="screen-game-naishi" class="hidden-screen glass-panel w-full max-w-5xl h-full max-h-[800px] rounded-2xl shadow-2xl flex flex-col fade-in overflow-hidden">
+    <div id="game-naishi-content" class="flex flex-col flex-grow overflow-hidden"></div>
+  </div>
+
+  <!-- SCREEN 7: CADIA GAME -->
+  <div id="screen-game-cadia" class="hidden-screen glass-panel w-full max-w-5xl h-full max-h-[800px] rounded-2xl shadow-2xl flex flex-col fade-in overflow-hidden">
+    <div id="game-cadia-content" class="flex flex-col flex-grow overflow-hidden"></div>
   </div>
 
   <!-- Custom Toast Alert Container -->

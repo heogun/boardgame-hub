@@ -1,8 +1,8 @@
-import type { GameState, Player, Level10GameState } from '../types';
+import type { GameState, Player, Level10GameState, BuffaloGameState, DraculaGameState, NaishiGameState, CardiaGameState } from '../types';
 
 type Listener = () => void;
 
-export type AppScreen = 'lobby' | 'room' | 'game-level10';
+export type AppScreen = 'lobby' | 'room' | 'game-level10' | 'game-buffalo' | 'game-dracula' | 'game-naishi' | 'game-cadia';
 
 class Store {
   private _peer: import('peerjs').Peer | null = null;
@@ -19,6 +19,10 @@ class Store {
   };
   private _currentScreen: AppScreen = 'lobby';
   private _l10: Level10GameState | null = null;
+  private _buffalo: BuffaloGameState | null = null;
+  private _dracula: DraculaGameState | null = null;
+  private _naishi: NaishiGameState | null = null;
+  private _cadia: CardiaGameState | null = null;
 
   private listeners: Set<Listener> = new Set();
 
@@ -61,6 +65,18 @@ class Store {
   get l10() {
     return this._l10;
   }
+  get buffalo() {
+    return this._buffalo;
+  }
+  get dracula() {
+    return this._dracula;
+  }
+  get naishi() {
+    return this._naishi;
+  }
+  get cadia() {
+    return this._cadia;
+  }
 
   set peer(p: import('peerjs').Peer | null) {
     this._peer = p;
@@ -92,6 +108,22 @@ class Store {
   }
   set l10(v: Level10GameState | null) {
     this._l10 = v;
+    this.notify();
+  }
+  set buffalo(v: BuffaloGameState | null) {
+    this._buffalo = v;
+    this.notify();
+  }
+  set dracula(v: DraculaGameState | null) {
+    this._dracula = v;
+    this.notify();
+  }
+  set naishi(v: NaishiGameState | null) {
+    this._naishi = v;
+    this.notify();
+  }
+  set cadia(v: CardiaGameState | null) {
+    this._cadia = v;
     this.notify();
   }
 
@@ -139,6 +171,10 @@ class Store {
     };
     this._currentScreen = 'lobby';
     this._l10 = null;
+    this._buffalo = null;
+    this._dracula = null;
+    this._naishi = null;
+    this._cadia = null;
     this.notify();
   }
 }

@@ -1,4 +1,8 @@
 import type { GameModule } from '../types';
+import { initBuffalo } from './buffalo';
+import { initDracula } from './dracula';
+import { initNaishi } from './naishi';
+import { initCadia } from './cadia';
 
 const modules = new Map<string, GameModule>();
 
@@ -32,4 +36,9 @@ export function initGameRegistry() {
     description: '협동 카드 게임 (2~4인 전용)',
     icon: 'ph-cards',
   });
+
+  initBuffalo();
+  initDracula();
+  initNaishi();
+  initCadia();
 }
