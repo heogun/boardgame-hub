@@ -318,12 +318,21 @@ export type CardiaFaction = 'rebellion' | 'academy' | 'guild' | 'dynasty';
 
 export type CardiaAbilityType = 'instant' | 'ongoing';
 
+export type CardiaDeckType = 'deck1' | 'deck2';
+
 export interface CardiaCard {
   influence: number;
   name: string;
   ability: string;
   abilityType: CardiaAbilityType;
   faction: CardiaFaction;
+}
+
+export interface CardiaLocation {
+  id: string;
+  name: string;
+  stars: number;
+  ability: string;
 }
 
 export interface CardiaModifier {
@@ -350,7 +359,8 @@ export interface CardiaPlayerState {
 
 export interface CardiaGameState {
   phase: CardiaPhase;
-  deck: CardiaCard[];
+  deckType: CardiaDeckType;
+  location: CardiaLocation | null;
   encounters: CardiaEncounter[];
   signets: Record<string, number>;
   players: Record<string, CardiaPlayerState>;

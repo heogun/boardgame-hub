@@ -1,4 +1,4 @@
-import type { CardiaGameState, CardiaCard } from '../../types';
+import type { CardiaGameState, CardiaCard, CardiaDeckType, CardiaLocation } from '../../types';
 
 const DECK_I: CardiaCard[] = [
   { influence: 1, name: 'Hired Blade', ability: 'Discard both this card and the opposing card', abilityType: 'instant', faction: 'rebellion' },
@@ -19,6 +19,36 @@ const DECK_I: CardiaCard[] = [
   { influence: 16, name: 'Djinn', ability: 'You immediately win the game', abilityType: 'instant', faction: 'dynasty' },
 ];
 
+const DECK_II: CardiaCard[] = [
+  { influence: 1, name: 'Aristocrat', ability: 'Gain 1 additional signet if you win this encounter', abilityType: 'instant', faction: 'dynasty' },
+  { influence: 2, name: 'Librarian', ability: 'Draw 2 cards from your deck', abilityType: 'instant', faction: 'academy' },
+  { influence: 3, name: 'Elemental', ability: 'Change the faction of any one card to any faction', abilityType: 'instant', faction: 'rebellion' },
+  { influence: 4, name: 'Successor', ability: 'Take the signet from the previous encounter if you win this one', abilityType: 'instant', faction: 'dynasty' },
+  { influence: 5, name: 'Tax Collector', ability: 'Your opponent loses 1 signet if they have any', abilityType: 'instant', faction: 'dynasty' },
+  { influence: 6, name: 'Poisoner', ability: 'Add -3 influence to the opposing card', abilityType: 'instant', faction: 'guild' },
+  { influence: 7, name: 'Engineer', ability: 'Add +3 influence to any one card', abilityType: 'instant', faction: 'guild' },
+  { influence: 8, name: 'Counselor', ability: 'You win the previous encounter even if it is a tie', abilityType: 'instant', faction: 'academy' },
+  { influence: 9, name: 'Blackmailer', ability: 'Your opponent discards 2 cards from their hand', abilityType: 'instant', faction: 'rebellion' },
+  { influence: 10, name: 'Envoy', ability: 'Add +5 influence to any one card', abilityType: 'instant', faction: 'dynasty' },
+  { influence: 11, name: 'Clockmaker', ability: 'Add +3 influence to your card in the previous encounter as well as to the next card you play', abilityType: 'instant', faction: 'guild' },
+  { influence: 12, name: 'Illusionist', ability: 'Copy and activate one of your opponent\'s played card\'s ability', abilityType: 'instant', faction: 'academy' },
+  { influence: 13, name: 'Kinesis Mage', ability: 'Move all modifiers and ongoing tokens from one card to another', abilityType: 'instant', faction: 'rebellion' },
+  { influence: 14, name: 'Prodigy', ability: 'Add +5 influence to the Prodigy', abilityType: 'instant', faction: 'academy' },
+  { influence: 15, name: 'Magistra', ability: 'Copy and activate one of your own played card\'s ability', abilityType: 'instant', faction: 'academy' },
+  { influence: 16, name: 'Mechanical Djinn', ability: 'You immediately win the game', abilityType: 'instant', faction: 'guild' },
+];
+
+export const LOCATIONS: CardiaLocation[] = [
+  { id: 'serpent-temple', name: 'Serpent Temple', stars: 1, ability: 'Whenever you win an encounter, draw 1 card and your opponent discards 1 card' },
+  { id: 'bazaar', name: 'Bazaar', stars: 1, ability: 'At the end of each round, do not draw cards. Whenever you have 1 card or fewer in hand, immediately draw 4 cards' },
+  { id: 'founders-day', name: "Founder's Day", stars: 1, ability: 'If you ever win 3 successive encounters, you immediately win the game' },
+  { id: 'grand-library', name: 'Grand Library', stars: 2, ability: 'At the beginning of the game, draw 2 cards instead of 5. At the end of each round, draw 2 cards instead of 1' },
+  { id: 'scrapyard', name: 'Scrapyard', stars: 2, ability: 'At the end of each round, draw 2 cards instead of 1. Then place 1 card from your hand under your deck' },
+  { id: 'auction-house', name: 'Auction House', stars: 2, ability: 'Whenever you reveal a card that has less Influence than your card in the previous encounter, discard the top card of your deck' },
+  { id: 'haunted-catacombs', name: 'Haunted Catacombs', stars: 3, ability: 'If you reveal a card of the same faction as your card in the previous encounter, you immediately lose the game' },
+  { id: 'foggy-swamp', name: 'Foggy Swamp', stars: 3, ability: 'Do not reveal your cards in encounters after placing them. Instead, reveal and resolve the top pair first, then the next, and so on' },
+];
+
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -28,16 +58,24 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
-export function createInitialGameState(player1Id: string, player2Id: string): CardiaGameState {
+export function createInitialGameState(
+  player1Id: string,
+  player2Id: string,
+  deckType: CardiaDeckType = 'deck1',
+  location: CardiaLocation | null = null,
+): CardiaGameState {
+  const handSize = location?.id === 'grand-library' ? 2 : 5;
+
   const deck1 = shuffleArray([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
   const deck2 = shuffleArray([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
 
-  const hand1 = deck1.splice(0, 5);
-  const hand2 = deck2.splice(0, 5);
+  const hand1 = deck1.splice(0, handSize);
+  const hand2 = deck2.splice(0, handSize);
 
   return {
     phase: 'playing',
-    deck: DECK_I,
+    deckType,
+    location,
     encounters: [],
     signets: { [player1Id]: 0, [player2Id]: 0 },
     players: {
@@ -52,8 +90,9 @@ export function createInitialGameState(player1Id: string, player2Id: string): Ca
   };
 }
 
-export function getCard(influence: number): CardiaCard {
-  return DECK_I[influence - 1];
+export function getCard(influence: number, deckType: CardiaDeckType = 'deck1'): CardiaCard {
+  const deck = deckType === 'deck2' ? DECK_II : DECK_I;
+  return deck[influence - 1];
 }
 
 export function getEffectiveInfluence(
