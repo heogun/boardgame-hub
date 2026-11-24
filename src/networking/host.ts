@@ -4,7 +4,8 @@ import { addPlayer, syncStateToAll, broadcastToClients } from './sync';
 import { logSystem } from '../ui/utils/log';
 import { updateScreen } from '../ui/utils/dom';
 import { showToast } from '../ui/utils/toast';
-import type { AnyPayload } from '../types';
+import type { AnyPayload, CMAnyPayload } from '../types';
+import { handleCosmoMessage } from '../games/cosmo/ui';
 
 export async function startHost() {
   store.isHost = true;
@@ -82,6 +83,12 @@ function handleIncomingDataAsHost(peerId: string, payload: AnyPayload) {
         store.updateGameState({ selectedGame: payload.game as string });
         syncStateToAll();
         logSystem(`게임 모듈이 [${payload.game as string}] (으)로 변경되었습니다.`);
+      }
+      break;
+
+    default:
+      if (payload.type.startsWith('CM_')) {
+        handleCosmoMessage(peerId, payload as CMAnyPayload);
       }
       break;
   }

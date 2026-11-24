@@ -9,6 +9,7 @@ import { initBuffaloScreen } from './games/buffalo/ui';
 import { initDraculaScreen } from './games/dracula/ui';
 import { initNaishiScreen } from './games/naishi/ui';
 import { initCadiaScreen } from './games/cadia/ui';
+import { initCosmoScreen } from './games/cosmo/ui';
 
 initGameRegistry();
 initLobbyEvents();
@@ -31,5 +32,8 @@ store.subscribe(() => {
   } else if (screen === 'game-cadia') {
     updateScreen('game-cadia');
     initCadiaScreen();
+  } else if (screen === 'game-cosmo') {
+    updateScreen('game-cosmo');
+    initCosmoScreen();
   }
 });

@@ -46,5 +46,18 @@ export function handleIncomingDataAsClient(payload: AnyPayload) {
     case 'EVENT_CHAT':
       logSystem(payload.message as string, false, payload.senderName as string);
       break;
+
+    case 'CM_STATE_SYNC':
+      store.cosmo = payload.gs;
+      if (store.currentScreen !== 'game-cosmo') {
+        store.currentScreen = 'game-cosmo';
+      }
+      break;
+
+    case 'CM_RETURN_TO_LOBBY':
+      store.currentScreen = 'room';
+      store.cosmo = null;
+      logSystem('방장이 게임을 종료했습니다. 대기실로 돌아갑니다.');
+      break;
   }
 }

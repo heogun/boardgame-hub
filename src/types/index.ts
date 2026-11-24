@@ -456,4 +456,102 @@ export type L10AnyPayload =
   | L10ActionError
   | L10ActionReturnToLobby;
 
-export type AnyPayload = StateSyncPayload | ActionJoinPayload | ActionChatPayload | ActionSelectGamePayload | EventChatPayload | L10AnyPayload | BCAnyPayload | DVHAnyPayload | NSAnyPayload | CDAnyPayload;
+// ========== Cosmo specific types ==========
+
+export type CosmoSuit = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
+export interface CosmoCard {
+  suit: CosmoSuit;
+  rank: number;
+}
+
+export type CosmoHandRank =
+  | 'high_card'
+  | 'one_pair'
+  | 'two_pair'
+  | 'three_of_a_kind'
+  | 'straight'
+  | 'flush'
+  | 'full_house'
+  | 'four_of_a_kind'
+  | 'straight_flush'
+  | 'royal_flush';
+
+export interface CosmoHandResult {
+  rank: CosmoHandRank;
+  cards: CosmoCard[];
+  score: number;
+}
+
+export type CosmoPhase = 'setup' | 'drawing' | 'betting' | 'showdown' | 'game_over';
+
+export type CosmoBetTarget = 'self' | 'opponent';
+
+export interface CosmoBet {
+  playerId: string;
+  amount: number;
+  target: CosmoBetTarget;
+  targetPlayerId?: string;
+}
+
+export interface CosmoPlayerState {
+  hand: CosmoCard[];
+  visibleCards: CosmoCard[];
+  hiddenCards: CosmoCard[];
+  money: number;
+  bet: CosmoBet | null;
+  hasBet: boolean;
+}
+
+export interface CosmoGameState {
+  phase: CosmoPhase;
+  players: Record<string, CosmoPlayerState>;
+  decks: CosmoCard[][];
+  currentTurn: string;
+  round: number;
+  maxRounds: number;
+  pot: number;
+  winner: string | null;
+  winnerReason: string;
+  playerOrder: string[];
+}
+
+export interface CMActionDrawCard extends NetworkPayload {
+  type: 'CM_DRAW_CARD';
+  deckIndex: number;
+  reveal: boolean;
+}
+
+export interface CMActionBet extends NetworkPayload {
+  type: 'CM_BET';
+  amount: number;
+  target: CosmoBetTarget;
+  targetPlayerId?: string;
+}
+
+export interface CMActionPass extends NetworkPayload {
+  type: 'CM_PASS';
+}
+
+export interface CMActionRevealHand extends NetworkPayload {
+  type: 'CM_REVEAL_HAND';
+}
+
+export interface CMStateSync extends NetworkPayload {
+  type: 'CM_STATE_SYNC';
+  gs: CosmoGameState;
+}
+
+export interface CMActionReturnToLobby extends NetworkPayload {
+  type: 'CM_RETURN_TO_LOBBY';
+}
+
+export type CMAnyPayload =
+  | CMActionDrawCard
+  | CMActionBet
+  | CMActionPass
+  | CMActionRevealHand
+  | CMStateSync
+  | CMActionReturnToLobby;
+
+export type AnyPayload = StateSyncPayload | ActionJoinPayload | ActionChatPayload | ActionSelectGamePayload | EventChatPayload | L10AnyPayload | BCAnyPayload | DVHAnyPayload | NSAnyPayload | CDAnyPayload | CMAnyPayload;

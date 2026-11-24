@@ -1,8 +1,8 @@
-import type { GameState, Player, Level10GameState, BuffaloGameState, DraculaGameState, NaishiGameState, CardiaGameState } from '../types';
+import type { GameState, Player, Level10GameState, BuffaloGameState, DraculaGameState, NaishiGameState, CardiaGameState, CosmoGameState } from '../types';
 
 type Listener = () => void;
 
-export type AppScreen = 'lobby' | 'room' | 'game-level10' | 'game-buffalo' | 'game-dracula' | 'game-naishi' | 'game-cadia';
+export type AppScreen = 'lobby' | 'room' | 'game-level10' | 'game-buffalo' | 'game-dracula' | 'game-naishi' | 'game-cadia' | 'game-cosmo';
 
 class Store {
   private _peer: import('peerjs').Peer | null = null;
@@ -23,6 +23,7 @@ class Store {
   private _dracula: DraculaGameState | null = null;
   private _naishi: NaishiGameState | null = null;
   private _cadia: CardiaGameState | null = null;
+  private _cosmo: CosmoGameState | null = null;
 
   private listeners: Set<Listener> = new Set();
 
@@ -77,6 +78,9 @@ class Store {
   get cadia() {
     return this._cadia;
   }
+  get cosmo() {
+    return this._cosmo;
+  }
 
   set peer(p: import('peerjs').Peer | null) {
     this._peer = p;
@@ -124,6 +128,10 @@ class Store {
   }
   set cadia(v: CardiaGameState | null) {
     this._cadia = v;
+    this.notify();
+  }
+  set cosmo(v: CosmoGameState | null) {
+    this._cosmo = v;
     this.notify();
   }
 
@@ -175,6 +183,7 @@ class Store {
     this._dracula = null;
     this._naishi = null;
     this._cadia = null;
+    this._cosmo = null;
     this.notify();
   }
 }

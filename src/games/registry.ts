@@ -3,6 +3,7 @@ import { initBuffalo } from './buffalo';
 import { initDracula } from './dracula';
 import { initNaishi } from './naishi';
 import { initCadia } from './cadia';
+import { initCosmo } from './cosmo';
 
 const modules = new Map<string, GameModule>();
 
@@ -41,4 +42,5 @@ export function initGameRegistry() {
   initDracula();
   initNaishi();
   initCadia();
+  initCosmo();
 }
