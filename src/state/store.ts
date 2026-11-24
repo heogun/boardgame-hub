@@ -1,8 +1,9 @@
-import type { GameState, Player, Level10GameState, BuffaloGameState, DraculaGameState, NaishiGameState, CardiaGameState } from '../types';
+import type { GameState, Player } from '../types';
 
 type Listener = () => void;
 
-export type AppScreen = 'lobby' | 'room' | 'game-level10' | 'game-buffalo' | 'game-dracula' | 'game-naishi' | 'game-cadia';
+// 게임 상태는 store 가 아니라 framework/session.ts 가 소유한다.
+export type AppScreen = 'lobby' | 'room' | 'game';
 
 class Store {
   private _peer: import('peerjs').Peer | null = null;
@@ -14,15 +15,11 @@ class Store {
   private _hostConnection: import('peerjs').DataConnection | null = null;
   private _gameState: GameState = {
     status: 'LOBBY',
-    selectedGame: 'tictactoe',
+    selectedGame: '',
+    gameOptions: {},
     players: [],
   };
   private _currentScreen: AppScreen = 'lobby';
-  private _l10: Level10GameState | null = null;
-  private _buffalo: BuffaloGameState | null = null;
-  private _dracula: DraculaGameState | null = null;
-  private _naishi: NaishiGameState | null = null;
-  private _cadia: CardiaGameState | null = null;
 
   private listeners: Set<Listener> = new Set();
 
@@ -62,21 +59,6 @@ class Store {
   get currentScreen() {
     return this._currentScreen;
   }
-  get l10() {
-    return this._l10;
-  }
-  get buffalo() {
-    return this._buffalo;
-  }
-  get dracula() {
-    return this._dracula;
-  }
-  get naishi() {
-    return this._naishi;
-  }
-  get cadia() {
-    return this._cadia;
-  }
 
   set peer(p: import('peerjs').Peer | null) {
     this._peer = p;
@@ -104,26 +86,6 @@ class Store {
   }
   set currentScreen(s: AppScreen) {
     this._currentScreen = s;
-    this.notify();
-  }
-  set l10(v: Level10GameState | null) {
-    this._l10 = v;
-    this.notify();
-  }
-  set buffalo(v: BuffaloGameState | null) {
-    this._buffalo = v;
-    this.notify();
-  }
-  set dracula(v: DraculaGameState | null) {
-    this._dracula = v;
-    this.notify();
-  }
-  set naishi(v: NaishiGameState | null) {
-    this._naishi = v;
-    this.notify();
-  }
-  set cadia(v: CardiaGameState | null) {
-    this._cadia = v;
     this.notify();
   }
 
@@ -166,15 +128,11 @@ class Store {
     this._hostConnection = null;
     this._gameState = {
       status: 'LOBBY',
-      selectedGame: 'tictactoe',
+      selectedGame: '',
+      gameOptions: {},
       players: [],
     };
     this._currentScreen = 'lobby';
-    this._l10 = null;
-    this._buffalo = null;
-    this._dracula = null;
-    this._naishi = null;
-    this._cadia = null;
     this.notify();
   }
 }

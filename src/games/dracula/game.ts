@@ -1,4 +1,4 @@
-import type { DraculaGameState, DraculaCard, DraculaPlayerState, CardSuit, DistrictState } from '../../types';
+import type { DraculaGameState, DraculaCard, DraculaPlayerState, CardSuit, DistrictState } from './types';
 
 const SUITS: CardSuit[] = ['red', 'blue', 'green', 'yellow'];
 const VALUES = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -61,6 +61,9 @@ export function createInitialGameState(draculaId: string, vanHelsingId: string):
       [vanHelsingId]: { role: 'van_helsing', rack: vanHelsingRack, revealedCards: [] },
     },
     currentPlayer: 'dracula',
+    step: 'draw',
+    pendingAbility: null,
+    lastAction: '',
     winner: null,
     winnerReason: '',
   };
@@ -141,11 +144,14 @@ export function swapTwoCards(gs: DraculaGameState, playerId: string, index1: num
   newRack[index1] = newRack[index2];
   newRack[index2] = temp;
 
+  // 공개 여부는 카드를 따라간다
+  const revealedCards = player.revealedCards.map((i) => (i === index1 ? index2 : i === index2 ? index1 : i));
+
   return {
     ...gs,
     players: {
       ...gs.players,
-      [playerId]: { ...player, rack: newRack },
+      [playerId]: { ...player, rack: newRack, revealedCards },
     },
   };
 }
@@ -168,12 +174,13 @@ export function swapWithOpponent(gs: DraculaGameState, playerId: string, myIndex
   newMyRack[myIndex] = opponentCard;
   newOpponentRack[myIndex] = myCard;
 
+  // 가정: 자리를 옮긴 카드는 다시 뒷면이 된다 (양쪽 모두 해당 위치의 공개 상태 해제)
   return {
     ...gs,
     players: {
       ...gs.players,
-      [playerId]: { ...player, rack: newMyRack },
-      [opponentId]: { ...opponent, rack: newOpponentRack },
+      [playerId]: { ...player, rack: newMyRack, revealedCards: player.revealedCards.filter((i) => i !== myIndex) },
+      [opponentId]: { ...opponent, rack: newOpponentRack, revealedCards: opponent.revealedCards.filter((i) => i !== myIndex) },
     },
   };
 }
@@ -214,7 +221,7 @@ export function revealCard(gs: DraculaGameState, target: 'self' | 'opponent' | '
       ...gs,
       players: {
         ...gs.players,
-        [playerId]: { ...player, revealedCards: [...player.revealedCards, index] },
+        [playerId]: { ...player, revealedCards: [...new Set([...player.revealedCards, index])] },
       },
     };
   }
@@ -228,7 +235,7 @@ export function revealCard(gs: DraculaGameState, target: 'self' | 'opponent' | '
       ...gs,
       players: {
         ...gs.players,
-        [opponentId]: { ...opponent, revealedCards: [...opponent.revealedCards, index] },
+        [opponentId]: { ...opponent, revealedCards: [...new Set([...opponent.revealedCards, index])] },
       },
     };
   }
@@ -275,7 +282,7 @@ export function resolveRound(gs: DraculaGameState): DraculaGameState {
         draculaHP: newHP,
         phase: 'game_over',
         winner: 'dracula',
-        winnerReason: '모든 인간을 흡혈鬼로 변환!',
+        winnerReason: '모든 인간을 흡혈귀로 변환!',
       };
     }
 
@@ -325,6 +332,8 @@ export function startNewRound(gs: DraculaGameState): DraculaGameState {
       ...gs.players[id],
       rack,
       revealedCards: [],
+      drawnCard: undefined,
+      revealedDeckCard: undefined,
     };
   }
 
@@ -335,6 +344,10 @@ export function startNewRound(gs: DraculaGameState): DraculaGameState {
     deck,
     discardPile: [],
     players: newPlayers,
-    currentPlayer: 'dracula',
+    // 가정: 라운드마다 선 플레이어를 번갈아 맡는다 (홀수 라운드 드라큘라, 짝수 라운드 반헬싱)
+    currentPlayer: (gs.round + 1) % 2 === 1 ? 'dracula' : 'van_helsing',
+    step: 'draw',
+    pendingAbility: null,
+    lastAction: `라운드 ${gs.round + 1} 시작`,
   };
 }

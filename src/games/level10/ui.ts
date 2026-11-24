@@ -1,42 +1,38 @@
-import { store } from '../../state/store';
-import { logSystem } from '../../ui/utils/log';
-import type { Level10GameState, L10AnyPayload } from '../../types';
-import { getMyHand, playCard, useThrowingStar, createInitialGameState } from './game';
-import { broadcastL10, sendL10ToHost, syncL10StateToAll } from './networking';
+import type { RenderContext } from '../../framework/types';
+import type { Level10GameState } from './types';
+import { getMyHand } from './game';
 
-let pendingStarVotes: Set<string> = new Set();
+export type Level10Action =
+  | { type: 'play'; value: number }
+  | { type: 'ready' }
+  | { type: 'pause' }
+  | { type: 'resume' }
+  | { type: 'next_level' }
+  | { type: 'suggest_star' }
+  | { type: 'vote_star'; agree: boolean };
 
-export function renderLevel10Screen(gs: Level10GameState) {
-  const container = document.getElementById('game-level10-content')!;
-  const myHand = getMyHand(gs, store.myId!);
+type Ctx = RenderContext<Level10Action, Record<string, never>>;
+
+export function renderLevel10(container: HTMLElement, gs: Level10GameState, ctx: Ctx) {
+  const myHand = getMyHand(gs, ctx.myId);
 
   const totalCards = gs.players.reduce((s, h) => s + h.cards.length, 0);
   const playedCount = gs.centerPile.length;
   const centerLabel = totalCards > 0 ? `${playedCount} / ${totalCards}` : '';
 
   container.innerHTML = `
-    <header class="bg-slate-800/50 border-b border-slate-700 p-3 flex items-center justify-between shrink-0">
-      <div class="flex items-center gap-3">
-        <span class="text-xs font-bold uppercase text-slate-400">레벨 ${gs.currentLevel} / ${gs.maxLevel}</span>
-        <div class="flex items-center gap-2">
-          <span class="flex items-center gap-1 text-xs"><i class="ph ph-heart-straight text-red-400"></i> ${gs.lives}</span>
-          <span class="flex items-center gap-1 text-xs"><i class="ph ph-star text-yellow-400"></i> ${gs.throwingStars}</span>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        ${gs.blindMode ? '<span class="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-bold">BLIND</span>' : ''}
-        <button id="btn-l10-leave" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors">
-          <i class="ph ph-sign-out"></i> 나가기
-        </button>
-      </div>
-    </header>
+    <div class="px-4 pt-3 flex items-center gap-3 text-xs">
+      <span class="font-bold uppercase text-slate-400">레벨 ${gs.currentLevel} / ${gs.maxLevel}</span>
+      <span class="flex items-center gap-1"><i class="ph ph-heart-straight text-red-400"></i> ${gs.lives}</span>
+      <span class="flex items-center gap-1"><i class="ph ph-star text-yellow-400"></i> ${gs.throwingStars}</span>
+      ${gs.blindMode ? '<span class="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-bold">BLIND</span>' : ''}
+    </div>
 
-    <div class="flex-grow flex flex-col overflow-hidden p-4 gap-4">
+    <div class="flex-grow flex flex-col p-4 gap-4">
       <div class="flex justify-center gap-2">
         ${gs.players.map((h) => {
-          const p = store.gameState.players.find((pl) => pl.id === h.playerId);
-          const name = p ? p.name : '?';
-          const isMe = h.playerId === store.myId;
+          const name = ctx.playerName(h.playerId);
+          const isMe = h.playerId === ctx.myId;
           return `<div class="text-xs px-3 py-1 rounded-full ${isMe ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700'}">
             ${name} (${h.cards.length})
           </div>`;
@@ -67,25 +63,19 @@ export function renderLevel10Screen(gs: Level10GameState) {
           <div class="text-center bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6">
             <i class="ph ph-check-circle text-4xl text-emerald-400 mb-2 block"></i>
             <p class="text-emerald-200 font-bold text-lg">레벨 ${gs.currentLevel} 클리어!</p>
-            <p class="text-xs text-slate-400 mt-2">다음 레벨로 이동합니다</p>
+            <button id="btn-l10-next" class="mt-3 bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg transition-colors">${gs.currentLevel >= gs.maxLevel ? '최종 결과 보기' : '다음 레벨'}</button>
           </div>
         ` : gs.phase === 'game_over_victory' ? `
           <div class="text-center bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-8">
             <i class="ph ph-trophy text-5xl text-yellow-400 mb-3 block"></i>
             <p class="text-yellow-200 font-bold text-2xl">승리!</p>
             <p class="text-slate-300 mt-2">모든 레벨을 클리어했습니다!</p>
-            <button id="btn-l10-return" class="mt-4 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg transition-colors">
-              대기실로 돌아가기
-            </button>
           </div>
         ` : gs.phase === 'game_over_defeat' ? `
           <div class="text-center bg-red-500/10 border border-red-500/30 rounded-xl p-8">
             <i class="ph ph-skull text-5xl text-red-400 mb-3 block"></i>
             <p class="text-red-200 font-bold text-2xl">패배...</p>
             <p class="text-slate-300 mt-2">모든 생명을 잃었습니다</p>
-            <button id="btn-l10-return" class="mt-4 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg transition-colors">
-              대기실로 돌아가기
-            </button>
           </div>
         ` : `
           <div class="flex flex-wrap justify-center gap-2 mb-2">
@@ -100,12 +90,14 @@ export function renderLevel10Screen(gs: Level10GameState) {
           ? `
         <div class="flex justify-center gap-2 flex-wrap">
           ${gs.phase === 'playing'
-            ? [...(store.isHost ? ['<button id="btn-l10-suggest-star" class="text-xs px-3 py-1.5 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 rounded-lg border border-yellow-600/30 transition-colors"><i class="ph ph-star"></i> 별 제안</button>'] : []),
+            ? [...(gs.throwingStars > 0 && !gs.starVote ? ['<button id="btn-l10-suggest-star" class="text-xs px-3 py-1.5 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 rounded-lg border border-yellow-600/30 transition-colors"><i class="ph ph-star"></i> 별 제안</button>'] : []),
               '<button id="btn-l10-pause" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"><i class="ph ph-pause"></i> 일시정지</button>',
             ].join('') : ''}
         </div>
         ` : ''
       }
+
+      ${gs.starVote ? renderStarVote(gs, ctx) : ''}
 
       ${
         gs.phase === 'playing' && myHand.length > 0
@@ -130,192 +122,37 @@ export function renderLevel10Screen(gs: Level10GameState) {
     </div>
   `;
 
-  attachLevel10Events(gs);
+  attachLevel10Events(container, ctx);
 }
 
-function attachLevel10Events(_gs: Level10GameState) {
-  document.querySelectorAll('.l10-card-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const value = parseInt(btn.getAttribute('data-value')!);
-      sendL10ToHost({ type: 'L10_CARD_PLAY', value });
-    });
-  });
-
-  const readyBtn = document.getElementById('btn-l10-ready');
-  if (readyBtn) {
-    readyBtn.addEventListener('click', () => {
-      sendL10ToHost({ type: 'L10_READY' });
-    });
-  }
-
-  const resumeBtn = document.getElementById('btn-l10-resume');
-  if (resumeBtn) {
-    resumeBtn.addEventListener('click', () => {
-      sendL10ToHost({ type: 'L10_RESUME' });
-    });
-  }
-
-  const pauseBtn = document.getElementById('btn-l10-pause');
-  if (pauseBtn) {
-    pauseBtn.addEventListener('click', () => {
-      sendL10ToHost({ type: 'L10_PAUSE' });
-    });
-  }
-
-  const suggestStarBtn = document.getElementById('btn-l10-suggest-star');
-  if (suggestStarBtn) {
-    suggestStarBtn.addEventListener('click', () => {
-      broadcastL10({ type: 'L10_SUGGEST_STAR', suggesterId: store.myId! });
-    });
-  }
-
-  const leaveBtn = document.getElementById('btn-l10-leave');
-  if (leaveBtn) {
-    leaveBtn.addEventListener('click', () => {
-      returnToLobby();
-    });
-  }
-
-  const returnBtn = document.getElementById('btn-l10-return');
-  if (returnBtn) {
-    returnBtn.addEventListener('click', () => {
-      returnToLobby();
-    });
-  }
-}
-
-function returnToLobby() {
-  store.currentScreen = 'room';
-  store.l10 = null;
-  logSystem('게임이 종료되었습니다. 대기실로 돌아갑니다.');
-  if (store.isHost) {
-    const payload: L10AnyPayload = { type: 'L10_RETURN_TO_LOBBY' };
-    broadcastL10(payload);
-    store.updateGameState({ status: 'LOBBY' });
-    syncL10StateToAll();
-  }
-}
-
-function showStarVoteModal(suggesterId: string) {
-  const suggester = store.gameState.players.find((p) => p.id === suggesterId);
-  const name = suggester ? suggester.name : '누군가';
-  const container = document.getElementById('toast-container')!;
-  const modal = document.createElement('div');
-  modal.id = 'star-vote-modal';
-  modal.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50';
-  modal.innerHTML = `
-    <div class="bg-slate-800 border border-slate-600 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl text-center">
-      <i class="ph ph-star text-4xl text-yellow-400 mb-3 block"></i>
-      <p class="text-lg font-bold text-white mb-1">별을 사용할까요?</p>
-      <p class="text-sm text-slate-400 mb-4">${name} 님이 별 사용을 제안했습니다</p>
-      <p class="text-xs text-slate-500 mb-4">모든 플레이어가 동의하면 가장 낮은 카드가 버려집니다</p>
-      <div class="flex gap-3 justify-center">
-        <button id="btn-star-yes" class="bg-yellow-600 hover:bg-yellow-500 text-white font-bold px-6 py-2 rounded-lg transition-colors">동의</button>
-        <button id="btn-star-no" class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg transition-colors">취소</button>
-      </div>
+function renderStarVote(gs: Level10GameState, ctx: Ctx): string {
+  const vote = gs.starVote!;
+  const iAgreed = vote.agreed.includes(ctx.myId);
+  const waiting = gs.players.filter((h) => !vote.agreed.includes(h.playerId)).map((h) => ctx.playerName(h.playerId));
+  return `
+    <div class="mx-auto max-w-md w-full bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-center">
+      <p class="text-yellow-200 font-bold"><i class="ph ph-star"></i> ${ctx.playerName(vote.suggesterId)} 님이 별 사용을 제안했습니다</p>
+      <p class="text-xs text-slate-400 mt-1">모두 동의하면 각자 가장 낮은 카드 1장을 버립니다 · 대기: ${waiting.join(', ') || '없음'}</p>
+      ${ctx.isSpectator || iAgreed ? '' : `
+        <div class="flex gap-2 justify-center mt-3">
+          <button id="btn-star-yes" class="bg-yellow-600 hover:bg-yellow-500 text-white font-bold px-5 py-1.5 rounded-lg">동의</button>
+          <button id="btn-star-no" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-1.5 rounded-lg">반대</button>
+        </div>`}
     </div>
   `;
-  container.appendChild(modal);
+}
 
-  document.getElementById('btn-star-yes')!.addEventListener('click', () => {
-    sendL10ToHost({ type: 'L10_STAR_VOTE', agree: true });
-    modal.remove();
+function attachLevel10Events(container: HTMLElement, ctx: Ctx) {
+  const on = (id: string, action: Level10Action) => container.querySelector(`#${id}`)?.addEventListener('click', () => ctx.dispatch(action));
+
+  container.querySelectorAll<HTMLButtonElement>('.l10-card-btn').forEach((btn) => {
+    btn.addEventListener('click', () => ctx.dispatch({ type: 'play', value: Number(btn.dataset.value) }));
   });
-  document.getElementById('btn-star-no')!.addEventListener('click', () => {
-    sendL10ToHost({ type: 'L10_STAR_VOTE', agree: false });
-    modal.remove();
-  });
-}
-
-export function handleLevel10Message(senderId: string, payload: L10AnyPayload) {
-  const gs = store.l10;
-  if (!gs) return;
-
-  switch (payload.type) {
-    case 'L10_CARD_PLAY': {
-      if (!store.isHost) return;
-      const { gs: newGs, valid } = playCard(gs, senderId, payload.value);
-      store.l10 = newGs;
-      syncL10StateToAll();
-      if (!valid) {
-        broadcastL10({ type: 'L10_ERROR', playedValue: payload.value, lowerCards: [] });
-      }
-      break;
-    }
-
-    case 'L10_READY': {
-      if (!store.isHost) return;
-      broadcastL10({ type: 'L10_STATE_SYNC', gs: { ...gs, phase: 'playing' } });
-      store.l10 = { ...gs, phase: 'playing' };
-      break;
-    }
-
-    case 'L10_PAUSE': {
-      broadcastL10({ type: 'L10_STATE_SYNC', gs: { ...gs, phase: 'concentration' } });
-      store.l10 = { ...gs, phase: 'concentration' };
-      break;
-    }
-
-    case 'L10_RESUME': {
-      if (!store.isHost) return;
-      broadcastL10({ type: 'L10_STATE_SYNC', gs: { ...gs, phase: 'playing' } });
-      store.l10 = { ...gs, phase: 'playing' };
-      break;
-    }
-
-    case 'L10_SUGGEST_STAR': {
-      showStarVoteModal(senderId);
-      break;
-    }
-
-    case 'L10_STAR_VOTE': {
-      if (!store.isHost) return;
-      if (payload.agree) {
-        pendingStarVotes.add(senderId);
-      }
-      const allPlayers = store.gameState.players.length;
-      const readyCount = pendingStarVotes.size;
-      if (readyCount >= allPlayers) {
-        pendingStarVotes.clear();
-        const newGs = useThrowingStar(gs);
-        store.l10 = newGs;
-        syncL10StateToAll();
-      }
-      break;
-    }
-
-    case 'L10_STATE_SYNC':
-      store.l10 = payload.gs;
-      renderLevel10Screen(payload.gs);
-      break;
-
-    case 'L10_ERROR':
-      if (store.isHost) break;
-      break;
-
-    case 'L10_RETURN_TO_LOBBY':
-      store.currentScreen = 'room';
-      store.l10 = null;
-      logSystem('방장이 게임을 종료했습니다. 대기실로 돌아갑니다.');
-      break;
-  }
-}
-
-export function startLevel10Game() {
-  const playerIds = store.gameState.players.map((p) => p.id);
-  const playerCount = playerIds.length;
-
-  store.l10 = createInitialGameState(playerIds, playerCount);
-  store.currentScreen = 'game-level10';
-
-  if (store.isHost) {
-    syncL10StateToAll();
-  }
-  logSystem('레벨 10 게임을 시작합니다!');
-}
-
-export function initLevel10Screen() {
-  if (store.l10) {
-    renderLevel10Screen(store.l10);
-  }
+  on('btn-l10-ready', { type: 'ready' });
+  on('btn-l10-resume', { type: 'resume' });
+  on('btn-l10-pause', { type: 'pause' });
+  on('btn-l10-next', { type: 'next_level' });
+  on('btn-l10-suggest-star', { type: 'suggest_star' });
+  on('btn-star-yes', { type: 'vote_star', agree: true });
+  on('btn-star-no', { type: 'vote_star', agree: false });
 }

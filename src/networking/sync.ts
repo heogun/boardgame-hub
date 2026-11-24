@@ -1,7 +1,7 @@
 import { store } from '../state/store';
-import type { AnyPayload } from '../types';
+import type { AnyPayload, ClientBoundPayload } from '../types';
+import { clientOnGameEnd, clientOnGameError, clientOnGameState } from '../framework/session';
 import { renderPlayerList } from '../ui/components/PlayerList';
-import { updateClientSelectionStyle } from '../ui/components/GameModuleCard';
 import { logSystem } from '../ui/utils/log';
 
 export function addPlayer(id: string, name: string, isHost: boolean) {
@@ -33,18 +33,29 @@ export function broadcastToClients(dataObj: AnyPayload) {
   });
 }
 
-export function handleIncomingDataAsClient(payload: AnyPayload) {
-  if (!payload || !payload.type) return;
+export function handleIncomingDataAsClient(payload: ClientBoundPayload) {
+  if (!payload || typeof payload.type !== 'string') return;
 
   switch (payload.type) {
     case 'STATE_SYNC':
       store.setGameState(payload.state);
       renderPlayerList();
-      updateClientSelectionStyle(store.gameState.selectedGame);
       break;
 
     case 'EVENT_CHAT':
-      logSystem(payload.message as string, false, payload.senderName as string);
+      logSystem(payload.message, false, payload.senderName);
+      break;
+
+    case 'GAME_STATE':
+      clientOnGameState(payload);
+      break;
+
+    case 'GAME_END':
+      clientOnGameEnd(payload);
+      break;
+
+    case 'GAME_ERROR':
+      clientOnGameError(payload);
       break;
   }
 }

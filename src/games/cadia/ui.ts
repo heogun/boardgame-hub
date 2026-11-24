@@ -1,276 +1,188 @@
-import type { CardiaGameState, CardiaEncounter, CDAnyPayload, CardiaDeckType } from '../../types';
-import { getCard, createInitialGameState, LOCATIONS } from './game';
-import { store } from '../../state/store';
-import { syncCadiaStateToAll } from './networking';
-import { logSystem } from '../../ui/utils/log';
+import type { RenderContext } from '../../framework/types';
+import type { CardiaEncounter, CardiaFaction, CardiaGameState, CardiaPlayedCard, CardiaToken } from './types';
+import { cardOf, choiceTargets, effectiveInfluence, type CardiaChoiceAction } from './game';
 
-const FACTION_EMOJI: Record<string, string> = {
+export type CardiaAction =
+  | { type: 'play'; card: number }
+  /** 폐차장: 손패 한 장을 덱 밑에 넣는다 */
+  | { type: 'bottom'; card: number }
+  | CardiaChoiceAction;
+type Ctx = RenderContext<CardiaAction, Record<string, never>>;
+
+/** view 에서 가린 카드 값 */
+export const HIDDEN_CARD = -1;
+
+const FACTIONS: CardiaFaction[] = ['rebellion', 'academy', 'guild', 'dynasty'];
+
+const FACTION_EMOJI: Record<CardiaFaction, string> = {
   rebellion: '⚔️',
   academy: '📚',
   guild: '⚙️',
   dynasty: '👑',
 };
 
-function renderCard(influence: number, selected: boolean, interactive: boolean): string {
-  const card = getCard(influence);
-  const emoji = FACTION_EMOJI[card.faction] || '?';
-  const selectedClass = selected ? 'cd-selected' : '';
-  const interactiveClass = interactive ? 'cd-interactive' : '';
-  return `<div class="cd-card ${selectedClass} ${interactiveClass}" data-influence="${influence}">
-    <div class="cd-card-number">${influence}</div>
-    <div class="cd-card-name">${card.name}</div>
-    <div class="cd-card-faction">${emoji} ${card.faction}</div>
-  </div>`;
-}
+const TOKEN_LABEL: Record<CardiaToken, string> = {
+  mediator: '⚖️중재',
+  judge: '🔨판사',
+  swamp: '🐸늪',
+  treasurer: '💰재무',
+  aristocrat: '🎩귀족',
+  successor: '👣계승',
+};
 
-function renderEncounter(encounter: CardiaEncounter, _index: number, deckType: CardiaDeckType): string {
-  const p1Card = getCard(encounter.player1Card + 1, deckType);
-  const p2Card = getCard(encounter.player2Card + 1, deckType);
-
-  const p1Class = encounter.player1Signet ? 'cd-winner' : '';
-  const p2Class = encounter.player2Signet ? 'cd-winner' : '';
-
-  return `
-    <div class="cd-encounter">
-      <div class="cd-encounter-card ${p1Class}">
-        <div class="cd-card-number">${encounter.player1Card + 1}</div>
-        <div class="cd-card-name">${p1Card.name}</div>
-      </div>
-      <div class="cd-encounter-vs">VS</div>
-      <div class="cd-encounter-card ${p2Class}">
-        <div class="cd-card-number">${encounter.player2Card + 1}</div>
-        <div class="cd-card-name">${p2Card.name}</div>
-      </div>
-    </div>
-  `;
-}
-
-function renderHand(hand: number[], _currentUserId: string, isCurrentPlayer: boolean): string {
-  return `
-    <div class="cd-hand">
-      ${hand.map((influence) => renderCard(influence, false, isCurrentPlayer)).join('')}
-    </div>
-  `;
-}
-
-function renderActions(gs: CardiaGameState, currentUserId: string): string {
-  if (gs.phase === 'game_over') {
-    const winnerId = gs.winner;
-    const winnerText = winnerId === currentUserId ? 'You win!' : 'Opponent wins!';
-    return `<div class="cd-result"><h3>Game Over!</h3><p>${winnerText}</p><button id="cd-return-lobby">Return to Lobby</button></div>`;
+function cardFace(gs: CardiaGameState, index: number, opts: { attrs?: string; interactive?: boolean; highlight?: boolean } = {}): string {
+  if (index === HIDDEN_CARD) {
+    return `<div class="w-24 h-32 rounded-xl border border-indigo-500/40 bg-gradient-to-br from-indigo-900 to-slate-900 flex items-center justify-center text-2xl text-indigo-300/60">?</div>`;
   }
-
-  if (gs.currentPlayer !== currentUserId) {
-    return '<p>Waiting for opponent...</p>';
-  }
-
+  const card = cardOf(gs, index);
   return `
-    <div class="cd-actions">
-      <button id="cd-play-card" disabled>Play Selected Card</button>
-      <p>Select a card from your hand to play</p>
-    </div>
+    <button type="button" ${opts.attrs ?? ''} ${opts.interactive ? '' : 'disabled'} title="${card.ability}"
+      class="w-24 h-32 rounded-xl border p-2 flex flex-col text-left transition-all
+        ${opts.highlight ? 'border-amber-400 bg-amber-500/10' : 'border-slate-600 bg-slate-800'}
+        ${opts.interactive ? 'hover:border-indigo-400 hover:-translate-y-1 cursor-pointer' : 'cursor-default'}">
+      <span class="text-xl font-black text-indigo-200">${card.influence}</span>
+      <span class="text-[11px] font-bold leading-tight mt-1">${card.name}</span>
+      <span class="text-[9px] leading-tight text-slate-400 mt-1 line-clamp-3">${card.abilityType === 'ongoing' ? '⏳ ' : ''}${card.ability}</span>
+      <span class="text-[10px] text-slate-400 mt-auto">${FACTION_EMOJI[card.faction]} ${card.faction}</span>
+    </button>
   `;
 }
 
-function renderGameState(gs: CardiaGameState, currentUserId: string): string {
-  const playerIds = Object.keys(gs.players);
-  const currentPlayer = gs.currentPlayer;
-  const deckLabel = gs.deckType === 'deck2' ? 'Deck II' : 'Deck I';
-  const locationLabel = gs.location ? ` (${gs.location.name})` : '';
-
+/** 조우 기록의 카드 한 장 (작게) */
+function playedChip(gs: CardiaGameState, pc: CardiaPlayedCard, enc: number, side: string, e: CardiaEncounter, selectable: boolean, picked: boolean): string {
+  const card = cardOf(gs, pc.card);
+  const eff = effectiveInfluence(gs, pc);
+  const mods = pc.modifiers.length ? pc.modifiers.map((m) => (m > 0 ? `+${m}` : `${m}`)).join(' ') : '';
+  const won = e.winner === side;
   return `
-    <div class="cd-game">
-      <h2>Duel for Cardia - ${deckLabel}${locationLabel}</h2>
-      <div class="cd-scoreboard">
-        ${playerIds.map((id) => `
-          <div class="cd-player-score ${id === currentUserId ? 'cd-you' : ''}">
-            <span>${id === currentUserId ? 'You' : 'Opponent'}:</span>
-            <span class="cd-signets">${gs.signets[id] || 0} Signets</span>
-          </div>
-        `).join('')}
-      </div>
-      <div class="cd-encounters">
-        <h3>Encounters</h3>
-        ${gs.encounters.map((enc, i) => renderEncounter(enc, i, gs.deckType)).join('')}
-      </div>
-      ${playerIds.map((id) => `
-        <div class="cd-player-area ${id === currentUserId ? 'cd-you' : ''}">
-          <h3>${id === currentUserId ? 'Your Hand' : 'Opponent\'s Hand'}</h3>
-          ${id === currentUserId
-            ? renderHand(gs.players[id].hand, currentUserId, id === currentPlayer)
-            : `<div class="cd-hidden-cards">${gs.players[id].hand.length} cards</div>`
-          }
-        </div>
-      `).join('')}
-      ${renderActions(gs, currentUserId)}
-    </div>
-  `;
+    <button type="button" data-enc="${enc}" data-side="${side}" ${selectable ? '' : 'disabled'} title="${card.name}: ${card.ability}"
+      class="w-20 rounded-lg border px-1.5 py-1 text-left text-[10px] leading-tight
+        ${e.discarded ? 'opacity-40 line-through border-slate-700' : won ? 'border-amber-400 bg-amber-500/10' : 'border-slate-700 bg-slate-800/70'}
+        ${selectable ? 'ring-2 ring-indigo-400 cursor-pointer hover:bg-indigo-500/20' : ''} ${picked ? 'ring-2 ring-emerald-400' : ''}">
+      <div class="flex justify-between"><b class="text-sm ${eff !== card.influence ? 'text-emerald-300' : 'text-indigo-200'}">${eff}</b><span>${'★'.repeat(pc.signets)}</span></div>
+      <div class="truncate">${card.name}</div>
+      <div class="text-slate-500">${FACTION_EMOJI[pc.faction]}${mods ? ` <span class="text-emerald-400">${mods}</span>` : ''}</div>
+      ${pc.tokens.length ? `<div class="text-amber-300">${pc.tokens.map((t) => TOKEN_LABEL[t]).join(' ')}</div>` : ''}
+    </button>`;
 }
 
-export function renderCadia(container: HTMLElement, gs: CardiaGameState, currentUserId: string): void {
-  container.innerHTML = renderGameState(gs, currentUserId);
+export function renderCardia(container: HTMLElement, gs: CardiaGameState, ctx: Ctx) {
+  const ids = Object.keys(gs.players);
+  const meId = ids.includes(ctx.myId) ? ctx.myId : ids[0];
+  const oppId = ids.find((id) => id !== meId)!;
+  const me = gs.players[meId];
+  const opp = gs.players[oppId];
+  const playing = gs.phase === 'playing' && !ctx.isSpectator;
+  const choice = gs.choice;
+  const myChoice = playing && choice?.playerId === ctx.myId ? choice : null;
+  const mustBottom = playing && gs.pendingBottom.includes(meId);
+  const waitFirst = gs.playsFirst === oppId && gs.pending[oppId] === undefined;
+  const canPlay = playing && !choice && !mustBottom && gs.pending[meId] === undefined && !waitFirst;
+  const targets = myChoice?.kind === 'card' ? choiceTargets(gs, myChoice) : [];
+  const isTarget = (enc: number, side: string) => targets.some((t) => t.enc === enc && t.side === side);
+  const isPicked = (enc: number, side: string) => !!myChoice?.picks.some((p) => p.enc === enc && p.side === side);
 
-  if (gs.phase === 'game_over') {
-    const btn = container.querySelector('#cd-return-lobby');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        syncCadiaStateToAll();
-      });
-    }
-    return;
-  }
+  const status = (() => {
+    if (gs.phase !== 'playing') return '';
+    if (choice) return choice.playerId === ctx.myId ? '' : `${ctx.playerName(choice.playerId)}이(가) ${choice.ability} 능력을 처리하는 중…`;
+    if (mustBottom) return '폐차장: 손패 한 장을 눌러 덱 밑에 넣으세요.';
+    if (gs.pending[meId] !== undefined) return '상대를 기다리는 중…';
+    if (waitFirst) return '점쟁이 효과: 상대가 먼저 앞면으로 카드를 냅니다.';
+    if (gs.playsFirst === meId) return '점쟁이 효과: 내 카드가 먼저 앞면으로 공개됩니다.';
+    return ctx.isSpectator ? '' : '아래에서 낼 카드를 고르세요.';
+  })();
 
-  if (gs.currentPlayer !== currentUserId) return;
+  container.innerHTML = `
+    <div class="p-4 flex flex-col gap-4">
+      <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+        <span>${gs.deckType === 'deck2' ? 'Deck II' : 'Deck I'}</span>
+        ${gs.location ? `<span class="text-sky-300" title="${gs.location.ability}">📍 ${gs.location.name}</span>` : ''}
+        <span>조우 ${gs.encounters.length}</span>
+        <span class="text-amber-300">${ctx.isSpectator ? ctx.playerName(meId) : '나'} ${gs.signets[meId] ?? 0} 인장</span>
+        <span class="text-amber-300">${ctx.playerName(oppId)} ${gs.signets[oppId] ?? 0} 인장</span>
+        <span class="text-slate-500">5개 이상 + 상대보다 많으면 승리</span>
+      </div>
+      ${gs.location ? `<p class="text-[11px] text-sky-300/80 -mt-2">${gs.location.ability}</p>` : ''}
 
-  let selectedCard: number | null = null;
-  const cards = container.querySelectorAll('.cd-card');
-
-  cards.forEach((card) => {
-    card.addEventListener('click', () => {
-      const influence = parseInt(card.getAttribute('data-influence') || '0');
-      if (influence === 0) return;
-
-      cards.forEach((c) => c.classList.remove('cd-selected'));
-      card.classList.add('cd-selected');
-      selectedCard = influence;
-
-      const playBtn = container.querySelector('#cd-play-card') as HTMLButtonElement;
-      if (playBtn) {
-        playBtn.disabled = false;
+      ${
+        gs.encounters.length
+          ? `<div class="flex gap-2 overflow-x-auto pb-1">
+          ${gs.encounters
+            .map(
+              (e, i) => `<div class="flex flex-col items-center gap-1 shrink-0">
+                ${playedChip(gs, e.cards[oppId], i, oppId, e, isTarget(i, oppId), isPicked(i, oppId))}
+                <span class="text-[10px] text-slate-500">#${i + 1}${e.forcedWinner ? ' 🎓' : ''}</span>
+                ${playedChip(gs, e.cards[meId], i, meId, e, isTarget(i, meId), isPicked(i, meId))}
+              </div>`,
+            )
+            .join('')}
+        </div>`
+          : ''
       }
+
+      ${myChoice ? renderChoice(gs, myChoice.kind, myChoice.prompt, myChoice.ability, opp.hand) : ''}
+
+      <div class="grid grid-cols-2 gap-4 items-start">
+        <div class="flex flex-col items-center gap-2">
+          <span class="text-xs text-slate-400">${ctx.playerName(oppId)} · 손패 ${opp.hand.length} · 덱 ${opp.deck.length} · 버림 ${opp.discardPile.length}</span>
+          ${gs.pending[oppId] !== undefined ? cardFace(gs, gs.pending[oppId]) : '<div class="w-24 h-32 rounded-xl border border-dashed border-slate-700"></div>'}
+          <span class="text-[11px] text-slate-500">${gs.pending[oppId] !== undefined ? '카드를 냈습니다' : gs.phase === 'playing' ? '고르는 중…' : ''}</span>
+        </div>
+        <div class="flex flex-col items-center gap-2">
+          <span class="text-xs text-slate-400">${ctx.isSpectator ? ctx.playerName(meId) : '나'} · 덱 ${me.deck.length} · 버림 ${me.discardPile.length}</span>
+          ${gs.pending[meId] !== undefined ? cardFace(gs, gs.pending[meId]) : '<div class="w-24 h-32 rounded-xl border border-dashed border-slate-700"></div>'}
+          <span class="text-[11px] text-slate-500">${status}</span>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="text-xs font-bold text-slate-400 mb-2">${ctx.isSpectator ? `${ctx.playerName(meId)}의 손패` : '내 손패'}</h3>
+        <div class="flex flex-wrap gap-2">
+          ${me.hand.map((c) => cardFace(gs, c, { attrs: `data-card="${c}"`, interactive: canPlay || mustBottom || (myChoice?.kind === 'hand' && myChoice.ability !== 'Palace Guard') })).join('') || '<span class="text-xs text-slate-500">없음</span>'}
+        </div>
+      </div>
+
+      ${gs.log.length ? `<div class="text-[11px] text-slate-500 flex flex-col gap-0.5">${gs.log.slice().reverse().map((l) => `<span>${l}</span>`).join('')}</div>` : ''}
+    </div>
+  `;
+
+  container.querySelectorAll<HTMLButtonElement>('[data-card]:not([disabled])').forEach((btn) => {
+    const card = Number(btn.dataset.card);
+    btn.addEventListener('click', () => {
+      if (myChoice?.kind === 'hand') ctx.dispatch({ type: 'choose_hand', card });
+      else if (mustBottom) ctx.dispatch({ type: 'bottom', card });
+      else ctx.dispatch({ type: 'play', card });
     });
   });
-
-  const playBtn = container.querySelector('#cd-play-card');
-  if (playBtn) {
-    playBtn.addEventListener('click', () => {
-      if (selectedCard === null) return;
-
-      const player = store.cadia?.players[currentUserId];
-      if (!player) return;
-
-      const cardIndex = player.hand.indexOf(selectedCard);
-      if (cardIndex === -1) return;
-
-      const newHand = [...player.hand];
-      newHand.splice(cardIndex, 1);
-
-      if (store.cadia) {
-        const newGs = {
-          ...store.cadia,
-          players: {
-            ...store.cadia.players,
-            [currentUserId]: {
-              ...player,
-              hand: newHand,
-            },
-          },
-          encounters: [
-            ...store.cadia.encounters,
-            {
-              player1Card: selectedCard - 1,
-              player2Card: 0,
-              player1Signet: false,
-              player2Signet: false,
-              player1Modifiers: [],
-              player2Modifiers: [],
-              ongoingTokens: [],
-            },
-          ],
-        };
-
-        store.cadia = newGs;
-        syncCadiaStateToAll();
-      }
-    });
-  }
+  container.querySelectorAll<HTMLButtonElement>('[data-opp-card]').forEach((btn) => {
+    btn.addEventListener('click', () => ctx.dispatch({ type: 'choose_hand', card: Number(btn.dataset.oppCard) }));
+  });
+  container.querySelectorAll<HTMLButtonElement>('[data-enc]:not([disabled])').forEach((btn) => {
+    btn.addEventListener('click', () => ctx.dispatch({ type: 'choose_card', enc: Number(btn.dataset.enc), side: btn.dataset.side! }));
+  });
+  container.querySelectorAll<HTMLButtonElement>('[data-faction]').forEach((btn) => {
+    btn.addEventListener('click', () => ctx.dispatch({ type: 'choose_faction', faction: btn.dataset.faction as CardiaFaction }));
+  });
+  container.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((btn) => {
+    btn.addEventListener('click', () => ctx.dispatch({ type: 'choose_option', option: btn.dataset.option as 'modifiers' | 'tokens' }));
+  });
 }
 
-export function handleCDMessage(_gs: CardiaGameState, _senderId: string, payload: CDAnyPayload): void {
-  if (payload.type === 'CD_STATE_SYNC') {
-    store.cadia = payload.gs;
-    return;
+function renderChoice(gs: CardiaGameState, kind: string, prompt: string, ability: string, oppHand: number[]): string {
+  const btn = 'px-3 py-1.5 rounded-lg text-xs bg-slate-700 hover:bg-slate-600 text-slate-100';
+  let body = '';
+  if (kind === 'card') body = '<p class="text-[11px] text-slate-400">위 조우 기록에서 테두리가 빛나는 카드를 누르세요.</p>';
+  if (kind === 'faction') body = FACTIONS.map((f) => `<button data-faction="${f}" class="${btn}">${FACTION_EMOJI[f]} ${f}</button>`).join('');
+  if (kind === 'option') body = `<button data-option="modifiers" class="${btn}">수정치 모두 제거</button><button data-option="tokens" class="${btn}">토큰 모두 제거</button>`;
+  if (kind === 'hand') {
+    body =
+      ability === 'Palace Guard'
+        ? oppHand.map((c) => cardFace(gs, c, { attrs: `data-opp-card="${c}"`, interactive: true })).join('')
+        : '<p class="text-[11px] text-slate-400">아래 내 손패에서 카드를 누르세요.</p>';
   }
-}
-
-export function startCadiaGame(deckType: CardiaDeckType = 'deck1', locationId: string | null = null) {
-  const playerIds = store.gameState.players.map((p) => p.id);
-  if (playerIds.length < 2) {
-    logSystem('Need at least 2 players to start Duel for Cardia');
-    return;
-  }
-  const location = locationId ? LOCATIONS.find((l) => l.id === locationId) || null : null;
-  store.cadia = createInitialGameState(playerIds[0], playerIds[1], deckType, location);
-  store.currentScreen = 'game-cadia';
-
-  if (store.isHost) {
-    syncCadiaStateToAll();
-  }
-  const deckLabel = deckType === 'deck2' ? 'Deck II' : 'Deck I';
-  const locationLabel = location ? ` - ${location.name}` : '';
-  logSystem(`카르디아 듀얼 게임을 시작합니다! (${deckLabel}${locationLabel})`);
-}
-
-export function initCadiaScreen() {
-  const container = document.getElementById('game-cadia-content');
-  if (!container) return;
-
-  if (store.cadia && store.myId) {
-    renderCadia(container, store.cadia, store.myId);
-    return;
-  }
-
-  if (store.isHost) {
-    container.innerHTML = `
-      <div class="cd-setup">
-        <h2>Duel for Cardia - Game Setup</h2>
-        <div class="cd-setup-section">
-          <h3>Select Deck</h3>
-          <div class="cd-deck-options">
-            <label class="cd-option">
-              <input type="radio" name="cd-deck" value="deck1" checked>
-              <span class="cd-option-label">Deck I</span>
-              <span class="cd-option-desc">Standard abilities</span>
-            </label>
-            <label class="cd-option">
-              <input type="radio" name="cd-deck" value="deck2">
-              <span class="cd-option-label">Deck II</span>
-              <span class="cd-option-desc">Advanced abilities (+1 difficulty)</span>
-            </label>
-          </div>
-        </div>
-        <div class="cd-setup-section">
-          <h3>Select Location (Optional)</h3>
-          <div class="cd-location-options">
-            <label class="cd-option">
-              <input type="radio" name="cd-location" value="" checked>
-              <span class="cd-option-label">No Location</span>
-              <span class="cd-option-desc">Standard game</span>
-            </label>
-            ${LOCATIONS.map((loc) => `
-              <label class="cd-option">
-                <input type="radio" name="cd-location" value="${loc.id}">
-                <span class="cd-option-label">${loc.name}</span>
-                <span class="cd-option-desc">${'★'.repeat(loc.stars)} - ${loc.ability}</span>
-              </label>
-            `).join('')}
-          </div>
-        </div>
-        <button id="cd-start-game" class="cd-start-btn">Start Game</button>
-      </div>
-    `;
-
-    const startBtn = container.querySelector('#cd-start-game');
-    if (startBtn) {
-      startBtn.addEventListener('click', () => {
-        const deckRadio = container.querySelector('input[name="cd-deck"]:checked') as HTMLInputElement;
-        const locationRadio = container.querySelector('input[name="cd-location"]:checked') as HTMLInputElement;
-        const deckType = (deckRadio?.value || 'deck1') as CardiaDeckType;
-        const locationId = locationRadio?.value || null;
-        startCadiaGame(deckType, locationId);
-      });
-    }
-  } else {
-    container.innerHTML = '<p>Waiting for host to start the game...</p>';
-  }
+  return `
+    <div class="rounded-xl border border-indigo-500/50 bg-indigo-500/10 p-3 flex flex-col gap-2">
+      <p class="text-sm text-indigo-100"><b>${ability}</b> — ${prompt}</p>
+      <div class="flex flex-wrap gap-2">${body}</div>
+    </div>`;
 }
