@@ -1,11 +1,21 @@
 import './cosmo.css';
-import { store } from '../../state/store';
-import { logSystem } from '../../ui/utils/log';
-import { showToast } from '../../ui/utils/toast';
-import type { CosmoGameState, CosmoCard, CMAnyPayload, CosmoHandResult } from '../../types';
-import { createInitialGameState, drawCard, placeBet, passBet, determineWinner, evaluateHand } from './game';
-import { sendCosmoToHost, syncCosmoStateToAll, broadcastCosmo } from './networking';
-import { syncStateToAll } from '../../networking/sync';
+import type { RenderContext } from '../../framework/types';
+import type { CosmoGameState, CosmoCard, CosmoHandResult } from './types';
+import { evaluateHand } from './game';
+
+export type CosmoAction =
+  | { type: 'draw'; deckIndex: number; reveal: boolean }
+  | { type: 'bet'; amount: number; target: 'self' | 'opponent'; targetPlayerId?: string }
+  | { type: 'pass' };
+
+export interface CosmoLocal {
+  selectedDeck: number | null;
+}
+
+type Ctx = RenderContext<CosmoAction, CosmoLocal>;
+
+// render 동안만 쓰는 이름 조회 (HTML 이스케이프됨)
+let nameOf: (id: string | null | undefined) => string = (id) => id ?? '?';
 
 const SUIT_EMOJI: Record<string, string> = {
   A: '🚀', B: '🛸', C: '🌟', D: '🪐', E: '🌙', F: '☀️',
@@ -82,7 +92,7 @@ function renderPlayerArea(playerId: string, player: CosmoGameState['players'][st
   return `
     <div class="cm-player-area ${isMyself ? 'cm-my-area' : 'cm-opponent-area'}">
       <div class="cm-player-header">
-        <span class="cm-player-name">${isMyself ? '나' : `플레이어 ${playerId.slice(0, 4)}`}</span>
+        <span class="cm-player-name">${isMyself ? '나' : `${nameOf(playerId)}`}</span>
         <span class="cm-player-money">${player.money}★</span>
         ${isCurrentPlayer ? '<span class="cm-turn-indicator">턴</span>' : ''}
       </div>
@@ -107,7 +117,7 @@ function renderBettingPhase(gs: CosmoGameState, myId: string): string {
   const myPlayer = gs.players[myId];
 
   if (!isMyTurn) {
-    return '<div class="cm-waiting">상대방의 베팅을 기다리는 중...</div>';
+    return `<div class="cm-waiting">${nameOf(gs.currentTurn)}의 베팅을 기다리는 중...</div>`;
   }
 
   if (myPlayer.hasBet) {
@@ -116,7 +126,7 @@ function renderBettingPhase(gs: CosmoGameState, myId: string): string {
 
   const otherPlayers = gs.playerOrder.filter((id) => id !== myId);
   const targetOptions = otherPlayers
-    .map((id) => `<option value="${id}">플레이어 ${id.slice(0, 4)}</option>`)
+    .map((id) => `<option value="${id}">${nameOf(id)}</option>`)
     .join('');
 
   return `
@@ -154,7 +164,7 @@ function renderDrawingPhase(gs: CosmoGameState, myId: string): string {
   const isMyTurn = gs.currentTurn === myId;
 
   if (!isMyTurn) {
-    return '<div class="cm-waiting">상대방의 차례를 기다리는 중...</div>';
+    return `<div class="cm-waiting">${nameOf(gs.currentTurn)}의 차례를 기다리는 중...</div>`;
   }
 
   const deckHtml = gs.decks
@@ -188,7 +198,7 @@ function renderShowdown(gs: CosmoGameState): string {
     .map((r, i) => `
       <div class="cm-result-player ${i === 0 ? 'cm-winner' : ''}">
         <div class="cm-result-rank">${i + 1}위</div>
-        <div class="cm-result-name">플레이어 ${r.id.slice(0, 4)}</div>
+        <div class="cm-result-name">${nameOf(r.id)}</div>
         <div class="cm-result-hand">${renderHandResult(r.hand)}</div>
         <div class="cm-result-cards">
           ${r.hand.cards.map((c) => renderCard(c)).join('')}
@@ -211,17 +221,16 @@ function renderGameOver(gs: CosmoGameState): string {
     <div class="cm-game-over">
       <h3>게임 종료!</h3>
       <div class="cm-winner-info">
-        <p>승자: 플레이어 ${gs.winner?.slice(0, 4)}</p>
-        <p>이유: ${gs.winnerReason}</p>
+        <p>승자: ${nameOf(gs.winner)}</p>
+        <p>${gs.winnerReason}</p>
       </div>
-      <button id="cm-return-lobby" class="cm-btn cm-btn-primary">대기실로 돌아가기</button>
     </div>
   `;
 }
 
-export function renderCosmoScreen(gs: CosmoGameState) {
-  const container = document.getElementById('game-cosmo-content')!;
-  const myId = store.myId!;
+export function renderCosmo(container: HTMLElement, gs: CosmoGameState, ctx: Ctx) {
+  nameOf = ctx.playerName;
+  const myId = ctx.myId;
   const isMyTurn = gs.currentTurn === myId;
 
   let phaseHtml = '';
@@ -245,214 +254,67 @@ export function renderCosmoScreen(gs: CosmoGameState) {
     .join('');
 
   container.innerHTML = `
-    <header class="bg-slate-800/50 border-b border-slate-700 p-3 flex items-center justify-between shrink-0">
-      <div class="flex items-center gap-3">
-        <span class="text-xs font-bold uppercase text-slate-400">코스모 (Cosmo)</span>
-        <span class="text-xs px-2 py-0.5 rounded ${isMyTurn ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-400'}">
-          ${isMyTurn ? '내 턴' : '상대 턴'}
-        </span>
-        <span class="text-xs text-slate-500">라운드 ${gs.round}/${gs.maxRounds}</span>
-        <span class="text-xs text-slate-500">팟: ${gs.pot}★</span>
-      </div>
-      <button id="btn-cm-leave" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors">
-        <i class="ph ph-sign-out"></i> 나가기
-      </button>
-    </header>
-
-    <div class="flex-grow flex flex-col overflow-y-auto p-4 gap-4">
+    <div class="px-4 pt-3 flex items-center gap-3 text-xs">
+      ${gs.phase === 'game_over' ? '' : `<span class="px-2 py-0.5 rounded ${isMyTurn ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-400'}">${isMyTurn ? '내 턴' : `${nameOf(gs.currentTurn)}의 턴`}</span>`}
+      <span class="text-slate-500">라운드 ${gs.round}/${gs.maxRounds}</span>
+      <span class="text-slate-500">팟: ${gs.pot}★</span>
+    </div>
+    <div class="flex flex-col p-4 gap-4">
       <div class="cm-players">${playersHtml}</div>
       <div class="cm-phase-area">${phaseHtml}</div>
     </div>
   `;
 
-  attachCosmoEvents(gs);
+  if (gs.phase === 'drawing') attachDrawingEvents(container, gs, ctx);
+  else if (gs.phase === 'betting') attachBettingEvents(container, gs, ctx);
 }
 
-function attachCosmoEvents(gs: CosmoGameState) {
-  const leaveBtn = document.getElementById('btn-cm-leave');
-  if (leaveBtn) {
-    leaveBtn.addEventListener('click', () => {
-      // 진행 중에는 방장만 게임을 끝낼 수 있음 (클라이언트만 나가면 다음 동기화 때 다시 끌려옴)
-      if (!store.isHost && gs.phase !== 'game_over') {
-        showToast('게임 진행 중에는 방장만 게임을 종료할 수 있습니다.', 'info');
-        return;
-      }
-      returnToLobby();
+function attachDrawingEvents(container: HTMLElement, gs: CosmoGameState, ctx: Ctx) {
+  if (gs.currentTurn !== ctx.myId) return;
+  const options = container.querySelector<HTMLElement>('#cm-draw-options');
+
+  const applySelection = () => {
+    container.querySelectorAll('.cm-deck').forEach((d) => {
+      d.classList.toggle('cm-selected', Number(d.getAttribute('data-deck')) === ctx.local.selectedDeck);
     });
-  }
+    if (options) options.style.display = ctx.local.selectedDeck === null ? 'none' : 'block';
+  };
+  applySelection();
 
-  const returnBtn = document.getElementById('cm-return-lobby');
-  if (returnBtn) {
-    returnBtn.addEventListener('click', () => returnToLobby());
-  }
-
-  if (gs.phase === 'drawing') {
-    attachDrawingEvents(gs);
-  } else if (gs.phase === 'betting') {
-    attachBettingEvents(gs);
-  }
-}
-
-function attachDrawingEvents(gs: CosmoGameState) {
-  const myId = store.myId!;
-  if (gs.currentTurn !== myId) return;
-
-  let selectedDeck: number | null = null;
-
-  document.querySelectorAll('.cm-deck').forEach((deck) => {
+  container.querySelectorAll('.cm-deck').forEach((deck) => {
     deck.addEventListener('click', () => {
-      const deckIndex = parseInt(deck.getAttribute('data-deck') || '-1');
-      if (deckIndex < 0 || gs.decks[deckIndex].length === 0) return;
-
-      selectedDeck = deckIndex;
-      document.querySelectorAll('.cm-deck').forEach((d) => d.classList.toggle('cm-selected', d === deck));
-      document.getElementById('cm-draw-options')?.style.setProperty('display', 'block');
+      const deckIndex = Number(deck.getAttribute('data-deck'));
+      if (!(deckIndex >= 0) || gs.decks[deckIndex].length === 0) return;
+      ctx.local.selectedDeck = deckIndex;
+      applySelection();
     });
   });
 
-  const revealBtn = document.getElementById('cm-reveal-btn');
-  if (revealBtn) {
-    revealBtn.addEventListener('click', () => {
-      if (selectedDeck === null) return;
-      sendCosmoToHost({ type: 'CM_DRAW_CARD', deckIndex: selectedDeck, reveal: true });
-    });
-  }
-
-  const hideBtn = document.getElementById('cm-hide-btn');
-  if (hideBtn) {
-    hideBtn.addEventListener('click', () => {
-      if (selectedDeck === null) return;
-      sendCosmoToHost({ type: 'CM_DRAW_CARD', deckIndex: selectedDeck, reveal: false });
-    });
-  }
+  const draw = (reveal: boolean) => {
+    if (ctx.local.selectedDeck === null) return;
+    ctx.dispatch({ type: 'draw', deckIndex: ctx.local.selectedDeck, reveal });
+    ctx.local.selectedDeck = null;
+  };
+  container.querySelector('#cm-reveal-btn')?.addEventListener('click', () => draw(true));
+  container.querySelector('#cm-hide-btn')?.addEventListener('click', () => draw(false));
 }
 
-function attachBettingEvents(gs: CosmoGameState) {
-  const myId = store.myId!;
-  if (gs.currentTurn !== myId) return;
-  if (gs.players[myId].hasBet) return;
+function attachBettingEvents(container: HTMLElement, gs: CosmoGameState, ctx: Ctx) {
+  const myId = ctx.myId;
+  if (gs.currentTurn !== myId || gs.players[myId]?.hasBet) return;
 
-  const targetSelect = document.getElementById('cm-bet-target') as HTMLSelectElement;
-  const targetPlayerRow = document.getElementById('cm-target-player-row');
+  const targetSelect = container.querySelector<HTMLSelectElement>('#cm-bet-target');
+  const targetPlayerRow = container.querySelector<HTMLElement>('#cm-target-player-row');
+  targetSelect?.addEventListener('change', () => {
+    if (targetPlayerRow) targetPlayerRow.style.display = targetSelect.value === 'opponent' ? 'block' : 'none';
+  });
 
-  if (targetSelect && targetPlayerRow) {
-    targetSelect.addEventListener('change', () => {
-      targetPlayerRow.style.display = targetSelect.value === 'opponent' ? 'block' : 'none';
-    });
-  }
+  container.querySelector('#cm-bet-btn')?.addEventListener('click', () => {
+    const amount = parseInt(container.querySelector<HTMLInputElement>('#cm-bet-amount')?.value ?? '') || 0;
+    const target = (targetSelect?.value ?? 'self') as 'self' | 'opponent';
+    const targetPlayerId = target === 'opponent' ? container.querySelector<HTMLSelectElement>('#cm-bet-target-player')?.value : undefined;
+    ctx.dispatch({ type: 'bet', amount, target, targetPlayerId });
+  });
 
-  const betBtn = document.getElementById('cm-bet-btn');
-  if (betBtn) {
-    betBtn.addEventListener('click', () => {
-      const amountInput = document.getElementById('cm-bet-amount') as HTMLInputElement;
-      const target = (document.getElementById('cm-bet-target') as HTMLSelectElement).value as 'self' | 'opponent';
-      const targetPlayerId = target === 'opponent'
-        ? (document.getElementById('cm-bet-target-player') as HTMLSelectElement).value
-        : undefined;
-
-      const amount = parseInt(amountInput.value) || 0;
-      if (amount <= 0 || amount > gs.players[myId].money) return;
-
-      sendCosmoToHost({
-        type: 'CM_BET',
-        amount,
-        target,
-        targetPlayerId,
-      });
-    });
-  }
-
-  const passBtn = document.getElementById('cm-pass-btn');
-  if (passBtn) {
-    passBtn.addEventListener('click', () => {
-      sendCosmoToHost({ type: 'CM_PASS' });
-    });
-  }
-}
-
-function returnToLobby() {
-  if (store.isHost) {
-    broadcastCosmo({ type: 'CM_RETURN_TO_LOBBY' });
-    store.updateGameState({ status: 'LOBBY' });
-    syncStateToAll();
-  }
-  store.cosmo = null;
-  store.currentScreen = 'room';
-  logSystem('게임이 종료되었습니다. 대기실로 돌아갑니다.');
-}
-
-export function handleCosmoMessage(_senderId: string, payload: CMAnyPayload) {
-  const gs = store.cosmo;
-  if (!gs) return;
-
-  switch (payload.type) {
-    case 'CM_DRAW_CARD': {
-      if (!store.isHost) return;
-      const newGs = drawCard(gs, _senderId, payload.deckIndex, payload.reveal);
-      store.cosmo = newGs;
-      syncCosmoStateToAll();
-      break;
-    }
-
-    case 'CM_BET': {
-      if (!store.isHost) return;
-      const newGs = placeBet(gs, _senderId, payload.amount, payload.target, payload.targetPlayerId);
-      store.cosmo = newGs;
-
-      if (newGs.phase === 'showdown') {
-        const finalGs = determineWinner(newGs);
-        store.cosmo = finalGs;
-      }
-
-      syncCosmoStateToAll();
-      break;
-    }
-
-    case 'CM_PASS': {
-      if (!store.isHost) return;
-      const newGs = passBet(gs, _senderId);
-      store.cosmo = newGs;
-
-      if (newGs.phase === 'showdown') {
-        const finalGs = determineWinner(newGs);
-        store.cosmo = finalGs;
-      }
-
-      syncCosmoStateToAll();
-      break;
-    }
-
-    case 'CM_STATE_SYNC':
-      store.cosmo = payload.gs;
-      renderCosmoScreen(payload.gs);
-      break;
-
-    case 'CM_RETURN_TO_LOBBY':
-      store.currentScreen = 'room';
-      store.cosmo = null;
-      logSystem('방장이 게임을 종료했습니다. 대기실로 돌아갑니다.');
-      break;
-  }
-}
-
-export function startCosmoGame() {
-  const playerIds = store.gameState.players.map((p) => p.id);
-  if (playerIds.length < 2) {
-    logSystem('코스모 게임은 최소 2명의 플레이어가 필요합니다.');
-    return;
-  }
-
-  store.cosmo = createInitialGameState(playerIds);
-  store.currentScreen = 'game-cosmo';
-
-  if (store.isHost) {
-    syncCosmoStateToAll();
-  }
-  logSystem('코스모 게임을 시작합니다!');
-}
-
-export function initCosmoScreen() {
-  if (store.cosmo) {
-    renderCosmoScreen(store.cosmo);
-  }
+  container.querySelector('#cm-pass-btn')?.addEventListener('click', () => ctx.dispatch({ type: 'pass' }));
 }

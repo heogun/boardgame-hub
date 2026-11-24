@@ -1,4 +1,4 @@
-import type { Level10GameState, Level10PlayerHand } from '../../types';
+import type { Level10GameState, Level10PlayerHand } from './types';
 
 const TOTAL_CARDS = 100;
 
@@ -54,6 +54,7 @@ export function createInitialGameState(playerIds: string[], playerCount: number)
     errorCard: null,
     lastPlayedValue: 0,
     blindMode: false,
+    starVote: null,
   };
 }
 
@@ -183,6 +184,7 @@ export function useThrowingStar(gs: Level10GameState): Level10GameState {
     ...gs,
     throwingStars: gs.throwingStars - 1,
     players: newPlayers,
+    starVote: null,
     phase: 'concentration',
   };
 

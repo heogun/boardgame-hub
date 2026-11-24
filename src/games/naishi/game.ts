@@ -1,4 +1,4 @@
-import type { NaishiGameState, NaishiPlayerState, NaishiCard, NaishiCardType } from '../../types';
+import type { NaishiGameState, NaishiPlayerState, NaishiCard, NaishiCardType } from './types';
 
 const CARD_TYPES: NaishiCardType[] = [
   'mountain', 'naishi', 'advisor', 'fort', 'sentinel',

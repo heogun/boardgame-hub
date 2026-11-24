@@ -1,4 +1,4 @@
-import type { DraculaGameState, DraculaCard, DraculaPlayerState, CardSuit, DistrictState } from '../../types';
+import type { DraculaGameState, DraculaCard, DraculaPlayerState, CardSuit, DistrictState } from './types';
 
 const SUITS: CardSuit[] = ['red', 'blue', 'green', 'yellow'];
 const VALUES = [1, 2, 3, 4, 5, 6, 7, 8];

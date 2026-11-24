@@ -1,4 +1,4 @@
-import type { CosmoCard, CosmoGameState, CosmoPlayerState, CosmoHandResult, CosmoSuit, CosmoHandRank } from '../../types';
+import type { CosmoCard, CosmoGameState, CosmoPlayerState, CosmoHandResult, CosmoSuit, CosmoHandRank } from './types';
 
 const SUITS: CosmoSuit[] = ['A', 'B', 'C', 'D', 'E', 'F'];
 const RANKS = [1, 2, 3, 4, 5, 6];
@@ -256,7 +256,7 @@ export function evaluateHand(cards: CosmoCard[]): CosmoHandResult {
   return { rank, cards: sorted, score };
 }
 
-export function determineWinner(gs: CosmoGameState): CosmoGameState {
+export function determineWinner(gs: CosmoGameState, nameOf: (id: string) => string = (id) => id): CosmoGameState {
   if (gs.phase !== 'showdown') return gs;
 
   const results = gs.playerOrder.map((id) => ({
@@ -280,7 +280,7 @@ export function determineWinner(gs: CosmoGameState): CosmoGameState {
     const pickedId = bet.target === 'self' ? id : bet.targetPlayerId;
     if (pickedId === winnerId) {
       players[id] = { ...players[id], money: players[id].money + bet.amount * 2 };
-      successes.push(`${id.slice(0, 4)} +${bet.amount * 2}★`);
+      successes.push(`${nameOf(id)} +${bet.amount * 2}★`);
     }
   }
   if (successes.length > 0) winnerReason += ` · 베팅 적중: ${successes.join(', ')}`;
@@ -327,4 +327,28 @@ export function getPlayerMoney(gs: CosmoGameState, playerId: string): number {
 
 export function getHandStrength(gs: CosmoGameState, playerId: string): CosmoHandResult {
   return evaluateHand(gs.players[playerId]?.hand ?? []);
+}
+
+// 뒷면 카드 자리표시자 (실제 값 없음)
+const HIDDEN_CARD: CosmoCard = { suit: 'A', rank: 0 };
+
+/** viewer 가 볼 수 없는 정보(다른 플레이어의 숨긴 카드, 덱 내용)를 가린다. 게임이 끝나면 모두 공개. */
+export function maskStateFor(gs: CosmoGameState, viewerId: string): CosmoGameState {
+  if (gs.phase === 'game_over') return gs;
+
+  const players: CosmoGameState['players'] = {};
+  for (const [id, p] of Object.entries(gs.players)) {
+    if (id === viewerId) {
+      players[id] = p;
+    } else {
+      const hidden = p.hiddenCards.map(() => HIDDEN_CARD);
+      players[id] = { ...p, hiddenCards: hidden, hand: [...p.visibleCards, ...hidden] };
+    }
+  }
+
+  return {
+    ...gs,
+    players,
+    decks: gs.decks.map((deck) => deck.map(() => HIDDEN_CARD)),
+  };
 }

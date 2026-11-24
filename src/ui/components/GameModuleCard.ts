@@ -1,47 +1,124 @@
 import { store } from '../../state/store';
+import { getGame, isPlayerCountValid, listGames, playerRangeLabel, resolveOptions } from '../../framework/registry';
+import { syncStateToAll } from '../../networking/sync';
+import { escapeHtml } from '../utils/escape';
+import { showToast } from '../utils/toast';
 
-export function updateGameModuleAvailability() {
-  const playerCount = store.gameState.players.length;
-  const moduleCards = document.querySelectorAll<HTMLDivElement>('.game-module-card');
-  const warningEl = document.getElementById('module-warning')!;
+/**
+ * 대기실의 게임 선택 영역 (게임 카드, 옵션, 시작 버튼).
+ * 등록된 게임 목록에서 자동으로 만들어지므로 게임을 추가해도 이 파일을 고칠 필요가 없다.
+ */
+export function renderGameSelector() {
+  const grid = document.getElementById('game-module-grid');
+  if (!grid) return;
 
-  moduleCards.forEach((card) => {
-    const min = parseInt(card.getAttribute('data-min') || '1');
-    const max = parseInt(card.getAttribute('data-max') || '10');
-    const gameName = card.getAttribute('data-game')!;
+  const count = store.gameState.players.length;
+  const selected = store.gameState.selectedGame;
+  const isHost = store.isHost;
 
-    if (playerCount >= min && playerCount <= max) {
-      card.classList.remove('opacity-40', 'cursor-not-allowed', 'border-slate-700');
-      card.classList.add('cursor-pointer');
-      if (gameName === store.gameState.selectedGame) {
-        card.className =
-          'game-module-card border border-indigo-500 bg-indigo-500/10 p-4 rounded-xl cursor-pointer transition-all';
-      } else {
-        card.className =
-          'game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl cursor-pointer hover:bg-slate-700 transition-all';
-      }
-    } else {
-      card.classList.add('opacity-40', 'cursor-not-allowed', 'border-slate-700');
-      card.classList.remove('cursor-pointer', 'border-indigo-500', 'bg-indigo-500/10', 'hover:bg-slate-700');
-      if (gameName === store.gameState.selectedGame && store.isHost) {
-        store.updateGameState({ selectedGame: 'tictactoe' });
-      }
-    }
+  grid.innerHTML = listGames()
+    .map((def) => {
+      const valid = isPlayerCountValid(def, count);
+      const isSelected = def.id === selected;
+      const stateClass = isSelected
+        ? 'border-indigo-500 bg-indigo-500/10'
+        : valid
+          ? `border-slate-700 bg-slate-800/50 ${isHost ? 'hover:bg-slate-700' : ''}`
+          : 'border-slate-700 bg-slate-800/50 opacity-40';
+      const cursor = isHost && valid ? 'cursor-pointer' : 'cursor-default';
+      return `
+        <button type="button" class="game-module-card text-left border ${stateClass} ${cursor} p-4 rounded-xl transition-all"
+                data-game="${escapeHtml(def.id)}" ${isHost ? '' : 'tabindex="-1"'} aria-pressed="${isSelected}">
+          <i class="ph ${escapeHtml(def.icon)} text-2xl ${isSelected ? 'text-indigo-400' : 'text-slate-400'} mb-2"></i>
+          <h4 class="font-bold">${escapeHtml(def.name)}</h4>
+          <p class="text-xs text-slate-400 mt-1">${escapeHtml(def.description)}</p>
+          <p class="text-[11px] mt-1 ${valid ? 'text-slate-500' : 'text-amber-400'}">${playerRangeLabel(def)}</p>
+        </button>
+      `;
+    })
+    .join('');
+
+  grid.querySelectorAll<HTMLButtonElement>('.game-module-card').forEach((card) => {
+    card.addEventListener('click', () => onSelectGame(card.dataset.game!));
   });
 
-  const level10Card = document.getElementById('card-module-level10')!;
-  warningEl.classList.toggle('hidden', !level10Card.classList.contains('opacity-40'));
+  renderOptions();
+  renderWarningAndStart();
 }
 
-export function updateClientSelectionStyle(selectedGame: string) {
-  document.querySelectorAll<HTMLDivElement>('.game-module-card').forEach((card) => {
-    const g = card.getAttribute('data-game');
-    if (g === selectedGame) {
-      card.className =
-        'game-module-card border border-indigo-500 bg-indigo-500/10 p-4 rounded-xl transition-all';
-    } else if (!card.classList.contains('opacity-40')) {
-      card.className =
-        'game-module-card border border-slate-700 bg-slate-800/50 p-4 rounded-xl transition-all';
-    }
+function onSelectGame(id: string) {
+  if (!store.isHost) {
+    showToast('게임 선택은 방장만 할 수 있습니다.', 'info');
+    return;
+  }
+  const def = getGame(id);
+  if (!def) return;
+  if (!isPlayerCountValid(def, store.gameState.players.length)) {
+    showToast(`${def.name}은(는) ${playerRangeLabel(def)} 게임입니다.`, 'error');
+    return;
+  }
+  store.updateGameState({ selectedGame: id, gameOptions: resolveOptions(def, {}) });
+  syncStateToAll();
+}
+
+function renderOptions() {
+  const box = document.getElementById('game-options');
+  if (!box) return;
+  const def = getGame(store.gameState.selectedGame);
+  if (!def?.options?.length) {
+    box.innerHTML = '';
+    return;
+  }
+  const values = resolveOptions(def, store.gameState.gameOptions);
+
+  box.innerHTML = def.options
+    .map((opt) => {
+      const current = opt.choices.find((c) => c.value === values[opt.key]);
+      if (!store.isHost) {
+        return `<div class="text-sm"><span class="text-slate-400">${escapeHtml(opt.label)}:</span> <span class="font-medium">${escapeHtml(current?.label ?? '')}</span></div>`;
+      }
+      return `
+        <label class="flex flex-col gap-1 text-sm min-w-[12rem]">
+          <span class="text-xs text-slate-400">${escapeHtml(opt.label)}</span>
+          <select data-option="${escapeHtml(opt.key)}" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500">
+            ${opt.choices
+              .map((c) => `<option value="${escapeHtml(c.value)}" ${c.value === values[opt.key] ? 'selected' : ''}>${escapeHtml(c.label)}</option>`)
+              .join('')}
+          </select>
+          ${current?.description ? `<span class="text-[11px] text-slate-500">${escapeHtml(current.description)}</span>` : ''}
+        </label>
+      `;
+    })
+    .join('');
+
+  box.querySelectorAll<HTMLSelectElement>('select[data-option]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      store.updateGameState({ gameOptions: { ...values, [sel.dataset.option!]: sel.value } });
+      syncStateToAll();
+    });
   });
+}
+
+function renderWarningAndStart() {
+  const def = getGame(store.gameState.selectedGame);
+  const count = store.gameState.players.length;
+  const valid = !!def && isPlayerCountValid(def, count);
+
+  const warning = document.getElementById('module-warning');
+  if (warning) {
+    const show = !!def && !valid;
+    warning.classList.toggle('hidden', !show);
+    warning.innerHTML = show
+      ? `<i class="ph ph-warning"></i> ${escapeHtml(def!.name)}: ${playerRangeLabel(def!)} 필요 (현재 ${count}명)`
+      : '';
+  }
+
+  const btn = document.getElementById('btn-start-game') as HTMLButtonElement | null;
+  if (btn) {
+    const enabled = store.isHost && valid;
+    btn.disabled = !enabled;
+    btn.classList.toggle('opacity-50', !enabled);
+    btn.classList.toggle('cursor-not-allowed', !enabled);
+    btn.classList.toggle('hidden', !store.isHost);
+  }
 }

@@ -1,10 +1,10 @@
-import type { BuffaloGameState, BuffaloPiece } from '../../types';
+import type { BuffaloGameState, BuffaloPiece } from './types';
 
 const BOARD_ROWS = 11;
 const BOARD_COLS = 7;
 const RIVER_ROWS = [4, 5];
 
-export function createInitialGameState(): BuffaloGameState {
+export function createInitialGameState(buffaloId: string, chiefId: string): BuffaloGameState {
   const pieces: BuffaloPiece[] = [];
 
   for (let col = 0; col < BOARD_COLS; col++) {
@@ -20,6 +20,7 @@ export function createInitialGameState(): BuffaloGameState {
   }
 
   return {
+    roles: { buffalo: buffaloId, chief: chiefId },
     pieces,
     currentTurn: 'buffalo',
     phase: 'playing',

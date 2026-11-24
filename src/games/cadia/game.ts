@@ -1,4 +1,4 @@
-import type { CardiaGameState, CardiaCard, CardiaDeckType, CardiaLocation } from '../../types';
+import type { CardiaGameState, CardiaCard, CardiaDeckType, CardiaLocation } from './types';
 
 const DECK_I: CardiaCard[] = [
   { influence: 1, name: 'Hired Blade', ability: 'Discard both this card and the opposing card', abilityType: 'instant', faction: 'rebellion' },
@@ -87,6 +87,7 @@ export function createInitialGameState(
     winnerReason: '',
     round: 1,
     maxRounds: 16,
+    pending: {},
   };
 }
 
@@ -161,8 +162,8 @@ export function resolveEncounter(
   const player1Id = playerIds[0];
   const player2Id = playerIds[1];
 
-  const p1Card = getCard(encounter.player1Card + 1);
-  const p2Card = getCard(encounter.player2Card + 1);
+  const p1Card = getCard(encounter.player1Card + 1, gs.deckType);
+  const p2Card = getCard(encounter.player2Card + 1, gs.deckType);
 
   let p1Influence = p1Card.influence;
   let p2Influence = p2Card.influence;

@@ -1,6 +1,6 @@
 import { store } from '../../state/store';
-import { updateGameModuleAvailability } from './GameModuleCard';
-import { updateStartButton } from '../room';
+import { escapeHtml } from '../utils/escape';
+import { renderGameSelector } from './GameModuleCard';
 
 export function renderPlayerList() {
   const list = document.getElementById('player-list')!;
@@ -20,9 +20,9 @@ export function renderPlayerList() {
         <div class="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-700/50">
           <div class="flex items-center gap-2">
             <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold text-slate-300">
-              ${p.name.charAt(0).toUpperCase()}
+              ${escapeHtml(p.name.charAt(0).toUpperCase())}
             </div>
-            <span class="text-sm font-medium ${isMe ? 'text-white' : 'text-slate-300'}">${p.name}</span>
+            <span class="text-sm font-medium ${isMe ? 'text-white' : 'text-slate-300'}">${escapeHtml(p.name)}</span>
           </div>
           <div class="flex gap-1">
             ${roleBadge}
@@ -33,6 +33,5 @@ export function renderPlayerList() {
     })
     .join('');
 
-  updateGameModuleAvailability();
-  updateStartButton();
+  renderGameSelector();
 }
