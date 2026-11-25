@@ -109,6 +109,14 @@ class Store {
     this.notify();
   }
 
+  setPlayerConnected(id: string, connected: boolean) {
+    const p = this._gameState.players.find((pl) => pl.id === id);
+    if (p) {
+      p.connected = connected;
+      this.notify();
+    }
+  }
+
   removePlayer(id: string) {
     const idx = this._gameState.players.findIndex((p) => p.id === id);
     if (idx > -1) {

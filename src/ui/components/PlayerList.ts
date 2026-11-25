@@ -16,6 +16,10 @@ export function renderPlayerList() {
       const meBadge = isMe
         ? `<span class="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-[10px] font-bold">ME</span>`
         : '';
+      const offlineBadge =
+        p.connected === false
+          ? `<span class="px-2 py-0.5 bg-sky-500/20 text-sky-300 rounded text-[10px] font-bold">재접속 대기</span>`
+          : '';
       return `
         <div class="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-700/50">
           <div class="flex items-center gap-2">
@@ -25,6 +29,7 @@ export function renderPlayerList() {
             <span class="text-sm font-medium ${isMe ? 'text-white' : 'text-slate-300'}">${escapeHtml(p.name)}</span>
           </div>
           <div class="flex gap-1">
+            ${offlineBadge}
             ${roleBadge}
             ${meBadge}
           </div>

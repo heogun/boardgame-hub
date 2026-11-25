@@ -30,6 +30,16 @@ export function isGameRunning(): boolean {
   return session !== null;
 }
 
+/** 진행 중인 게임의 참가자인지 (관전자 제외) */
+export function isSessionPlayer(id: string): boolean {
+  return !!session?.players.some((p) => p.id === id);
+}
+
+/** 연결 상태처럼 게임 상태 밖의 정보가 바뀌었을 때 게임 화면을 다시 그린다. */
+export function refreshGameScreen() {
+  render();
+}
+
 function newSessionId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -319,6 +329,16 @@ function render() {
   }
 }
 
+/** 연결이 끊겨 재접속을 기다리는 참가자 표시 */
+function offlineBanner(s: Session): string {
+  const offline = s.players.filter((p) => store.gameState.players.find((rp) => rp.id === p.id)?.connected === false);
+  if (!offline.length) return '';
+  const names = offline.map((p) => (p.id === store.myId ? '나' : escapeHtml(p.name))).join(', ');
+  return `<div class="basis-full mt-2 px-3 py-2 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-200 text-sm flex items-center gap-2">
+    <i class="ph ph-wifi-slash"></i> ${names} 님의 연결이 끊겼습니다. 재접속을 기다리는 중… <span class="text-xs text-sky-300/70">(1분 안에 돌아오지 않으면 퇴장 처리)</span>
+  </div>`;
+}
+
 function renderHeader(header: HTMLElement, s: Session, result: GameResult | null, isSpectator: boolean) {
   const canRestart = isPlayerCountValid(s.def, store.gameState.players.length);
   header.innerHTML = `
@@ -333,6 +353,7 @@ function renderHeader(header: HTMLElement, s: Session, result: GameResult | null
            <button id="btn-game-end" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors"><i class="ph ph-sign-out"></i> 대기실로</button>`
         : '<button id="btn-game-leave-room" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors"><i class="ph ph-sign-out"></i> 방 나가기</button>'}
     </div>
+    ${offlineBanner(s)}
     ${result
       ? `<div class="basis-full mt-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm flex items-center justify-between gap-2">
            <span><i class="ph ph-flag-checkered"></i> 게임 종료 · ${escapeHtml(result.summary)}</span>

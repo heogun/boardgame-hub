@@ -3,6 +3,7 @@ import { initLobbyEvents } from './ui/lobby';
 import { initRoomEvents } from './ui/room';
 import { store } from './state/store';
 import { updateScreen } from './ui/utils/dom';
+import { rejoinOnLoad } from './networking/client';
 
 initLobbyEvents();
 initRoomEvents();
@@ -16,3 +17,6 @@ store.subscribe(() => {
     updateScreen(shownScreen);
   }
 });
+
+// 새로고침했다면 이 탭에서 하던 방에 다시 들어간다
+rejoinOnLoad();

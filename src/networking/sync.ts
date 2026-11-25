@@ -1,6 +1,6 @@
 import { store } from '../state/store';
 import type { AnyPayload, ClientBoundPayload } from '../types';
-import { clientOnGameEnd, clientOnGameError, clientOnGameState } from '../framework/session';
+import { clientOnGameEnd, clientOnGameError, clientOnGameState, isGameRunning, refreshGameScreen, resetSession } from '../framework/session';
 import { renderPlayerList } from '../ui/components/PlayerList';
 import { logSystem } from '../ui/utils/log';
 
@@ -40,6 +40,15 @@ export function handleIncomingDataAsClient(payload: ClientBoundPayload) {
     case 'STATE_SYNC':
       store.setGameState(payload.state);
       renderPlayerList();
+      if (isGameRunning()) {
+        if (payload.state.status === 'LOBBY') {
+          // 연결이 끊긴 사이에 게임이 끝났으면 대기실로
+          resetSession();
+          store.currentScreen = 'room';
+        } else {
+          refreshGameScreen(); // 다른 플레이어의 연결 상태 표시
+        }
+      }
       break;
 
     case 'EVENT_CHAT':
