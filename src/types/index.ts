@@ -7,6 +7,8 @@ export interface Player {
   id: string;
   name: string;
   isHost: boolean;
+  /** false 면 연결이 끊겨 재접속을 기다리는 중 (게임 중에만 자리를 남겨 둔다) */
+  connected?: boolean;
 }
 
 export type GameStatus = 'LOBBY' | 'PLAYING';
@@ -34,6 +36,42 @@ export interface StateSyncPayload extends NetworkPayload {
 export interface ActionJoinPayload extends NetworkPayload {
   type: 'ACTION_JOIN';
   name: string;
+  /** 재접속할 때 처음 입장 때 받은 토큰. 같은 id 로 다른 사람이 자리를 가로채지 못하게 한다. */
+  token?: string;
+}
+
+/** 클라이언트 → 방장: 스스로 방을 나간다 (재접속 대기 없이 바로 퇴장) */
+export interface ActionLeavePayload extends NetworkPayload {
+  type: 'ACTION_LEAVE';
+}
+
+/** 방장 → 입장한 클라이언트에게만: 재접속용 토큰 */
+export interface JoinAcceptedPayload extends NetworkPayload {
+  type: 'JOIN_ACCEPTED';
+  token: string;
+  /** true 면 끊겼던 자리로 돌아왔다 */
+  rejoined: boolean;
+}
+
+/** 방장 → 클라이언트: 연결 확인. 클라이언트는 바로 PONG 으로 답한다. */
+export interface PingPayload extends NetworkPayload {
+  type: 'PING';
+}
+
+/** 클라이언트 → 방장: PING 응답 */
+export interface PongPayload extends NetworkPayload {
+  type: 'PONG';
+}
+
+/** 방장 → 모두: 방장이 방을 나가 방이 닫혔다 (재접속 시도하지 않음) */
+export interface RoomClosedPayload extends NetworkPayload {
+  type: 'ROOM_CLOSED';
+}
+
+/** 방장 → 클라이언트: 입장 거부 (토큰 불일치 등) */
+export interface JoinRejectedPayload extends NetworkPayload {
+  type: 'JOIN_REJECTED';
+  reason: string;
 }
 
 export interface ActionChatPayload extends NetworkPayload {
@@ -78,6 +116,15 @@ export interface GameErrorPayload extends NetworkPayload {
   message: string;
 }
 
-export type HostBoundPayload = ActionJoinPayload | ActionChatPayload | GameActionPayload;
-export type ClientBoundPayload = StateSyncPayload | EventChatPayload | GameStatePayload | GameEndPayload | GameErrorPayload;
+export type HostBoundPayload = ActionJoinPayload | ActionLeavePayload | ActionChatPayload | GameActionPayload | PongPayload;
+export type ClientBoundPayload =
+  | StateSyncPayload
+  | EventChatPayload
+  | GameStatePayload
+  | GameEndPayload
+  | GameErrorPayload
+  | JoinAcceptedPayload
+  | JoinRejectedPayload
+  | RoomClosedPayload
+  | PingPayload;
 export type AnyPayload = HostBoundPayload | ClientBoundPayload;

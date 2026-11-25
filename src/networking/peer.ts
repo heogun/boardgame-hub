@@ -1,7 +1,8 @@
 import Peer from 'peerjs';
 import { store } from '../state/store';
 
-export function createPeer(isHost: boolean): Promise<string> {
+/** fixedId 를 주면 그 id 로 접속한다 (재접속 시 예전 id 를 그대로 쓰기 위해). */
+export function createPeer(isHost: boolean, fixedId?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const options = {
       debug: 2,
@@ -27,6 +28,8 @@ export function createPeer(isHost: boolean): Promise<string> {
       if (isHost) {
         const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
         peer = new Peer(`ROOM-${randomId}`, options);
+      } else if (fixedId) {
+        peer = new Peer(fixedId, options);
       } else {
         peer = new Peer(options);
       }
