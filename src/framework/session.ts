@@ -30,6 +30,51 @@ export function isGameRunning(): boolean {
   return session !== null;
 }
 
+// ===================================================================
+// 저장 · 복원 (방장 새로고침 대비)
+// ===================================================================
+
+/** 방장이 저장해 두는 게임 세션. 상태는 JSON 으로 저장되므로 게임 상태는 평범한 객체여야 한다. */
+export interface SessionSnapshot {
+  id: string;
+  gameId: string;
+  players: PlayerInfo[];
+  state: unknown;
+}
+
+let persistHook: (() => void) | null = null;
+
+/** 방장의 게임 상태가 바뀔 때마다 불린다 (자동 저장용). */
+export function onHostSessionChange(fn: () => void) {
+  persistHook = fn;
+}
+
+export function exportSession(): SessionSnapshot | null {
+  const s = session;
+  if (!s || !store.isHost) return null;
+  return { id: s.id, gameId: s.def.id, players: s.players, state: s.state };
+}
+
+/** 저장해 둔 세션으로 게임을 이어간다 (방장 전용). */
+export function restoreSession(snap: SessionSnapshot): boolean {
+  const def = getGame(snap.gameId);
+  if (!def || !store.isHost) return false;
+  teardown();
+  const s: Session = {
+    id: snap.id,
+    def,
+    players: snap.players,
+    state: snap.state,
+    local: def.createLocal?.() ?? {},
+    tickTimer: null,
+  };
+  session = s;
+  if (def.tick) s.tickTimer = window.setInterval(hostTick, def.tick.intervalMs);
+  store.currentScreen = 'game';
+  publish();
+  return true;
+}
+
 /** 진행 중인 게임의 참가자인지 (관전자 제외) */
 export function isSessionPlayer(id: string): boolean {
   return !!session?.players.some((p) => p.id === id);
@@ -117,6 +162,7 @@ function publish() {
     });
   }
   render();
+  persistHook?.();
 }
 
 function reject(playerId: string, message: string) {
@@ -184,6 +230,7 @@ export function hostEndGame(reason: string) {
   syncStateToAll();
   store.currentScreen = 'room';
   logSystem(escapeHtml(reason));
+  persistHook?.();
 }
 
 /** 게임 도중 입장한 사람에게는 관전자 view 를 보낸다. */

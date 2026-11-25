@@ -6,6 +6,7 @@ import { logSystem } from '../ui/utils/log';
 import { showToast } from '../ui/utils/toast';
 import { setLoading } from '../ui/utils/dom';
 import { isGameRunning, refreshGameScreen, resetSession } from '../framework/session';
+import { clearHostSave } from './host';
 import type { ClientBoundPayload } from '../types';
 
 /**
@@ -249,6 +250,7 @@ export function leaveRoom() {
     }
   }
   clearRejoin();
+  clearHostSave();
   token = null;
   resetSession();
   const peer = store.peer;

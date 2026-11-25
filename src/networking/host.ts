@@ -3,9 +3,20 @@ import { createPeer } from './peer';
 import { addPlayer, syncStateToAll, broadcastToClients } from './sync';
 import { logSystem } from '../ui/utils/log';
 import { showToast } from '../ui/utils/toast';
-import type { ClientBoundPayload, HostBoundPayload } from '../types';
+import type { ClientBoundPayload, GameState, HostBoundPayload } from '../types';
 import type { DataConnection } from 'peerjs';
-import { hostHandleGameAction, hostOnPeerJoined, hostOnPeerLeft, isSessionPlayer, refreshGameScreen } from '../framework/session';
+import {
+  exportSession,
+  hostHandleGameAction,
+  hostOnPeerJoined,
+  hostOnPeerLeft,
+  isSessionPlayer,
+  onHostSessionChange,
+  refreshGameScreen,
+  restoreSession,
+  type SessionSnapshot,
+} from '../framework/session';
+import { setLoading } from '../ui/utils/dom';
 import { escapeHtml } from '../ui/utils/escape';
 
 /**
@@ -72,30 +83,39 @@ function sendTo(conn: DataConnection, payload: ClientBoundPayload) {
   if (conn.open) conn.send(payload);
 }
 
-export async function startHost() {
+function resetHostRuntime() {
   store.isHost = true;
   tokens.clear();
   lastSeen.clear();
   for (const t of graceTimers.values()) window.clearTimeout(t);
   graceTimers.clear();
+}
+
+/** 방장 peer 가 열린 뒤 공통 준비 (새 방 / 복원 모두) */
+function enterRoomAsHost(id: string) {
+  store.myId = id;
+  store.roomId = id;
+  setupHostPeer();
+  startHeartbeat();
+
+  document.getElementById('role-badge')!.textContent = 'HOST';
+  document.getElementById('role-badge')!.className =
+    'px-3 py-1 bg-indigo-500/20 text-indigo-300 text-xs font-bold uppercase rounded-lg border border-indigo-500/30';
+  document.getElementById('display-room-id')!.textContent = id;
+}
+
+export async function startHost() {
+  resetHostRuntime();
+  clearHostSave();
   store.updateGameState({ players: [] });
 
   try {
     const id = await createPeer(true);
-    store.myId = id;
-    store.roomId = id;
-
+    enterRoomAsHost(id);
     addPlayer(id, store.myName, true);
-    setupHostPeer();
-    startHeartbeat();
-
-    document.getElementById('role-badge')!.textContent = 'HOST';
-    document.getElementById('role-badge')!.className =
-      'px-3 py-1 bg-indigo-500/20 text-indigo-300 text-xs font-bold uppercase rounded-lg border border-indigo-500/30';
-    document.getElementById('display-room-id')!.textContent = store.roomId;
-
     store.currentScreen = 'room';
     logSystem('방이 생성되었습니다. 다른 플레이어가 접속하기를 기다립니다.');
+    saveHost();
   } catch (err) {
     const peerErr = err as { type?: string; message?: string };
     if (peerErr.type === 'unavailable-id') {
@@ -107,6 +127,151 @@ export async function startHost() {
     }
     store.isHost = false;
     throw err;
+  }
+}
+
+// ===================================================================
+// 저장 · 복원
+// ===================================================================
+
+/**
+ * 방장 탭은 방(참가자·선택한 게임·옵션)과 진행 중인 게임 상태, 재접속 토큰을 sessionStorage 에 계속 저장한다.
+ * 방장이 새로고침하면 같은 방 ID 로 다시 열고 게임을 이어간다. 끊겼던 클라이언트는 재접속 시도(60초) 중에
+ * 다시 붙어 같은 자리로 돌아온다. 저장은 탭마다 따로이고 탭을 닫으면 사라진다.
+ */
+const HOST_SAVE_KEY = 'boardgame-hub:host';
+/** 이보다 오래된 저장은 복원하지 않는다 */
+const HOST_SAVE_MAX_AGE_MS = 10 * 60_000;
+
+interface HostSave {
+  v: 1;
+  savedAt: number;
+  roomId: string;
+  name: string;
+  room: GameState;
+  tokens: [string, string][];
+  session: SessionSnapshot | null;
+}
+
+let saveQueued = false;
+let restoring = false;
+
+/** 같은 틱 안의 여러 변경을 한 번에 저장한다 */
+function saveHost() {
+  if (saveQueued || restoring) return;
+  saveQueued = true;
+  queueMicrotask(() => {
+    saveQueued = false;
+    if (!store.isHost || !store.roomId) return;
+    const save: HostSave = {
+      v: 1,
+      savedAt: Date.now(),
+      roomId: store.roomId,
+      name: store.myName,
+      room: store.gameState,
+      tokens: [...tokens.entries()],
+      session: exportSession(),
+    };
+    try {
+      sessionStorage.setItem(HOST_SAVE_KEY, JSON.stringify(save));
+    } catch (err) {
+      // 저장소가 꽉 찼거나 막혀 있으면 저장만 건너뛴다
+      console.warn('[host] 저장 실패', err);
+    }
+  });
+}
+
+export function clearHostSave() {
+  try {
+    sessionStorage.removeItem(HOST_SAVE_KEY);
+  } catch {
+    // 무시
+  }
+}
+
+function loadHostSave(): HostSave | null {
+  try {
+    const raw = sessionStorage.getItem(HOST_SAVE_KEY);
+    if (!raw) return null;
+    const save = JSON.parse(raw) as HostSave;
+    if (save?.v !== 1 || typeof save.roomId !== 'string' || !save.room || Date.now() - save.savedAt > HOST_SAVE_MAX_AGE_MS) {
+      clearHostSave();
+      return null;
+    }
+    return save;
+  } catch {
+    clearHostSave();
+    return null;
+  }
+}
+
+// 게임 상태가 바뀌면(publish) 저장, 방 상태가 바뀌면(store 알림) 저장
+onHostSessionChange(saveHost);
+store.subscribe(() => {
+  if (store.isHost) saveHost();
+});
+
+/** 새로고침 직후: 이 탭에서 열었던 방이 있으면 다시 연다. 복원을 시작했으면 true. */
+export function restoreHostOnLoad(): boolean {
+  const save = loadHostSave();
+  if (!save) return false;
+  void restoreHost(save);
+  return true;
+}
+
+async function restoreHost(save: HostSave) {
+  setLoading(true, '방을 다시 여는 중...');
+  restoring = true;
+  resetHostRuntime();
+  store.myName = save.name;
+  try {
+    // 예전 방 ID 는 시그널링 서버에서 풀릴 때까지 잠깐 '사용 중'일 수 있다
+    const deadline = Date.now() + 30_000;
+    let id: string;
+    for (;;) {
+      try {
+        id = await createPeer(true, save.roomId);
+        break;
+      } catch (err) {
+        if ((err as { type?: string }).type !== 'unavailable-id' || Date.now() > deadline) throw err;
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+    }
+    enterRoomAsHost(id);
+    for (const [peerId, t] of save.tokens) tokens.set(peerId, t);
+
+    const others = save.room.players.filter((p) => !p.isHost);
+    if (save.session) {
+      // 게임 참가자는 자리를 남겨 두고 재접속을 기다린다
+      store.setGameState({ ...save.room, players: save.room.players.map((p) => (p.isHost ? p : { ...p, connected: false })) });
+      restoring = false;
+      if (!restoreSession(save.session)) throw new Error('게임을 복원하지 못했습니다');
+      for (const p of others) {
+        if (isSessionPlayer(p.id)) onPeerDisconnected(p.id);
+        else store.removePlayer(p.id);
+      }
+    } else {
+      // 대기실이었다면 다른 사람은 재접속하면서 다시 들어온다
+      store.setGameState({ ...save.room, status: 'LOBBY', players: save.room.players.filter((p) => p.isHost) });
+      restoring = false;
+      store.currentScreen = 'room';
+    }
+    syncStateToAll();
+    saveHost();
+    setLoading(false);
+    logSystem('방을 다시 열었습니다. 다른 플레이어가 다시 접속하기를 기다립니다.');
+    showToast(save.session ? '진행 중이던 게임을 이어갑니다.' : '방을 다시 열었습니다.', 'success');
+  } catch (err) {
+    console.error('[host] 복원 실패', err);
+    restoring = false;
+    clearHostSave();
+    store.isHost = false;
+    store.peer?.destroy();
+    store.peer = null;
+    store.updateGameState({ status: 'LOBBY', selectedGame: '', gameOptions: {}, players: [] });
+    store.currentScreen = 'lobby';
+    setLoading(false);
+    showToast('이전 방을 다시 열지 못했습니다.', 'error');
   }
 }
 
@@ -190,6 +355,7 @@ function handleJoin(conn: DataConnection, rawName: unknown, token: unknown) {
   const t = known ?? newToken();
   tokens.set(peerId, t);
   addPlayer(peerId, name, false);
+  saveHost();
   sendTo(conn, { type: 'JOIN_ACCEPTED', token: t, rejoined: false });
   logSystem(`${escapeHtml(name)} 님이 방에 참가했습니다.`);
   hostOnPeerJoined(peerId);

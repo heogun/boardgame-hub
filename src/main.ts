@@ -4,6 +4,7 @@ import { initRoomEvents } from './ui/room';
 import { store } from './state/store';
 import { updateScreen } from './ui/utils/dom';
 import { rejoinOnLoad } from './networking/client';
+import { restoreHostOnLoad } from './networking/host';
 
 initLobbyEvents();
 initRoomEvents();
@@ -18,5 +19,5 @@ store.subscribe(() => {
   }
 });
 
-// 새로고침했다면 이 탭에서 하던 방에 다시 들어간다
-rejoinOnLoad();
+// 새로고침했다면 이 탭에서 하던 방을 다시 열거나(방장) 다시 들어간다(참가자)
+if (!restoreHostOnLoad()) rejoinOnLoad();
