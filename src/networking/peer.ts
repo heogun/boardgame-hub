@@ -27,7 +27,7 @@ export function createPeer(isHost: boolean, fixedId?: string): Promise<string> {
       let peer: Peer;
       if (isHost) {
         const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-        peer = new Peer(`ROOM-${randomId}`, options);
+        peer = new Peer(fixedId ?? `ROOM-${randomId}`, options);
       } else if (fixedId) {
         peer = new Peer(fixedId, options);
       } else {
